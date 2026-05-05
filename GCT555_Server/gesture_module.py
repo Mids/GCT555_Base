@@ -14,4 +14,11 @@ def detect_custom_gesture(landmarks):
     
     # Add custom gestures
     
+    if not thumb_is_open and index_is_open and middle_is_open and ring_is_open and pinky_is_open:
+        return "Custom_Four"
+    
+    
+    if thumb_is_open and not index_is_open and not middle_is_open and not ring_is_open and pinky_is_open:
+        return "Custum_Phone"
+    
     return None
