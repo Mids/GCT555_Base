@@ -30,6 +30,7 @@ venv.bak/
 
 # Server Specific
 GCT555_Server/models/
+GCT555_Server/test_input.mp4
 
 # Unity (applies to subdirectories)
 [Ll]ibrary/
