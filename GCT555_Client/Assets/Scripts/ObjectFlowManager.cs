@@ -47,14 +47,11 @@ public class ObjectFlowManager : MonoBehaviour
     public float screenTouchLine = 0.92f;
 
     public bool useBrowsingMode = true;
-    public float browsingSpacing = 0.38f;
-    public float browsingSideDepth = 0.18f;
     public float browsingYawRange = 55f;
     public float browsingPitchRange = 35f;
 
     [Header("Debug Lines")]
     public bool showDebugLines = true;
-    public float debugLineWidth = 0.025f;
     public float debugLineLength = 8f;
     public float debugLineZ = -0.65f;
     public Color browsingLineColor = Color.cyan;
@@ -72,8 +69,6 @@ public class ObjectFlowManager : MonoBehaviour
     private StreamClient poseClient;
     private FlowMode currentMode = FlowMode.Overview;
     private int selectedIndex = -1;
-    private LineRenderer browsingDebugLine;
-    private LineRenderer touchDebugLine;
 
     private void Awake()
     {
@@ -84,7 +79,6 @@ public class ObjectFlowManager : MonoBehaviour
     private void Update()
     {
         EnsureObjects();
-        EnsureDebugLines();
         ApplyPoseInput();
         UpdateTrackingState();
         UpdateLayout();
@@ -112,8 +106,6 @@ public class ObjectFlowManager : MonoBehaviour
             }
         }
 
-        DestroyDebugLine(browsingDebugLine);
-        DestroyDebugLine(touchDebugLine);
     }
 
     private void EnsureObjects()
@@ -267,7 +259,13 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (currentMode == FlowMode.Browsing && IsScreenTouched())
         {
-            selectedIndex = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(position) * (ObjectCount - 1)), 0, ObjectCount - 1);
+            int newSelectedIndex = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(position) * (ObjectCount - 1)), 0, ObjectCount - 1);
+            if (newSelectedIndex != selectedIndex)
+            {
+                Debug.Log($"[ObjectFlowManager] Selected FlowCube_{newSelectedIndex + 1} in Browsing mode. position={position:F3}, depth={depth:F3}");
+            }
+
+            selectedIndex = newSelectedIndex;
         }
         else if (currentMode == FlowMode.Overview)
         {
@@ -286,12 +284,6 @@ public class ObjectFlowManager : MonoBehaviour
         float focusedIndex = Mathf.Clamp01(position) * (ObjectCount - 1);
         float spacing = Mathf.Lerp(MinSpacing, MaxSpacing, clampedDepth) * gapMultiplier;
         float sideDepth = Mathf.Lerp(MinSideDepth, MaxSideDepth, clampedDepth) * gapMultiplier;
-
-        if (currentMode == FlowMode.Browsing)
-        {
-            spacing = browsingSpacing;
-            sideDepth = browsingSideDepth;
-        }
 
         for (int i = 0; i < ObjectCount; i++)
         {
@@ -369,83 +361,26 @@ public class ObjectFlowManager : MonoBehaviour
         }
     }
 
-    private void EnsureDebugLines()
-    {
-        if (browsingDebugLine == null)
-        {
-            browsingDebugLine = CreateDebugLine("BrowsingLine", browsingLineColor);
-        }
-
-        if (touchDebugLine == null)
-        {
-            touchDebugLine = CreateDebugLine("TouchLine", touchLineColor);
-        }
-    }
-
-    private LineRenderer CreateDebugLine(string lineName, Color color)
-    {
-        GameObject lineObject = new GameObject(lineName);
-        lineObject.transform.SetParent(transform, false);
-
-        LineRenderer lineRenderer = lineObject.AddComponent<LineRenderer>();
-        lineRenderer.useWorldSpace = false;
-        lineRenderer.positionCount = 2;
-        lineRenderer.startWidth = debugLineWidth;
-        lineRenderer.endWidth = debugLineWidth;
-
-        Shader shader = Shader.Find("Sprites/Default");
-        if (shader != null)
-        {
-            lineRenderer.material = new Material(shader);
-        }
-
-        lineRenderer.startColor = color;
-        lineRenderer.endColor = color;
-        return lineRenderer;
-    }
-
     private void UpdateDebugLines()
     {
-        if (browsingDebugLine == null || touchDebugLine == null)
-            return;
-
-        browsingDebugLine.gameObject.SetActive(showDebugLines);
-        touchDebugLine.gameObject.SetActive(showDebugLines);
-
         if (!showDebugLines)
             return;
 
-        UpdateDebugLine(browsingDebugLine, browsingLine, browsingLineColor);
-        UpdateDebugLine(touchDebugLine, screenTouchLine, touchLineColor);
+        DrawDebugLine(browsingLine, browsingLineColor);
+        DrawDebugLine(screenTouchLine, touchLineColor);
     }
 
-    private void UpdateDebugLine(LineRenderer lineRenderer, float normalizedY, Color color)
+    private void DrawDebugLine(float normalizedY, Color color)
     {
         float localY = NormalizedFloorToLocalY(normalizedY);
         float halfLength = debugLineLength * 0.5f;
-        lineRenderer.startWidth = debugLineWidth;
-        lineRenderer.endWidth = debugLineWidth;
-        lineRenderer.startColor = color;
-        lineRenderer.endColor = color;
-        lineRenderer.SetPosition(0, new Vector3(-halfLength, localY, debugLineZ));
-        lineRenderer.SetPosition(1, new Vector3(halfLength, localY, debugLineZ));
+        Vector3 start = transform.TransformPoint(new Vector3(-halfLength, localY, debugLineZ));
+        Vector3 end = transform.TransformPoint(new Vector3(halfLength, localY, debugLineZ));
+        Debug.DrawLine(start, end, color);
     }
 
     private float NormalizedFloorToLocalY(float normalizedY)
     {
         return Mathf.Lerp(2f, -2f, Mathf.Clamp01(normalizedY));
-    }
-
-    private void DestroyDebugLine(LineRenderer lineRenderer)
-    {
-        if (lineRenderer == null)
-            return;
-
-        if (lineRenderer.material != null)
-        {
-            Destroy(lineRenderer.material);
-        }
-
-        Destroy(lineRenderer.gameObject);
     }
 }
