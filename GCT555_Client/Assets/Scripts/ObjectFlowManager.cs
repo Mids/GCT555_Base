@@ -11,6 +11,8 @@ public class ObjectFlowManager : MonoBehaviour
     private const int ObjectCount = 9;
     private const int LeftShoulderIndex = 11;
     private const int RightShoulderIndex = 12;
+    private const int LeftWristIndex = 15;
+    private const int RightWristIndex = 16;
     private const int LeftHipIndex = 23;
     private const int RightHipIndex = 24;
     private const float MinSpacing = 0.45f;
@@ -50,6 +52,12 @@ public class ObjectFlowManager : MonoBehaviour
     public float browsingYawRange = 55f;
     public float browsingPitchRange = 35f;
 
+    [Header("Wrist Touch Detection")]
+    public bool useWristTouchDetection = true;
+    public float wristVisibilityThreshold = 0.35f;
+    public bool logWristTouchDebug = true;
+    public float wristSampleLogInterval = 0.75f;
+
     [Header("Debug Lines")]
     public bool showDebugLines = true;
     public float debugLineLength = 8f;
@@ -69,6 +77,8 @@ public class ObjectFlowManager : MonoBehaviour
     private StreamClient poseClient;
     private FlowMode currentMode = FlowMode.Overview;
     private int selectedIndex = -1;
+    private bool wasWristTouching;
+    private float nextWristSampleLogTime;
 
     private void Awake()
     {
@@ -275,7 +285,62 @@ public class ObjectFlowManager : MonoBehaviour
 
     private bool IsScreenTouched()
     {
-        return depth >= screenTouchLine;
+        if (!useWristTouchDetection)
+            return depth >= screenTouchLine;
+
+        bool isTouching = TryGetWristTouch(out string reason);
+        if (logWristTouchDebug && isTouching != wasWristTouching)
+        {
+            Debug.Log(isTouching ? $"[ObjectFlowManager] Wrist touch detected: {reason}" : "[ObjectFlowManager] Wrist touch ended.");
+        }
+
+        wasWristTouching = isTouching;
+        return isTouching;
+    }
+
+    private bool TryGetWristTouch(out string reason)
+    {
+        reason = "";
+
+        StreamClient client = GetPoseClient();
+        PoseData poseData = client != null ? client.latestPoseData : null;
+        if (poseData == null || poseData.landmarks == null)
+            return false;
+
+        bool leftTouch = TryGetVisibleLandmark(poseData, LeftWristIndex, out Landmark leftWrist) && leftWrist.y >= screenTouchLine;
+        bool rightTouch = TryGetVisibleLandmark(poseData, RightWristIndex, out Landmark rightWrist) && rightWrist.y >= screenTouchLine;
+
+        if (leftTouch || rightTouch)
+        {
+            reason = $"{FormatWrist("left", leftWrist, leftTouch)} {FormatWrist("right", rightWrist, rightTouch)} touchLine={screenTouchLine:F3}";
+            return true;
+        }
+
+        if (logWristTouchDebug && Time.unscaledTime >= nextWristSampleLogTime)
+        {
+            Debug.Log($"[ObjectFlowManager] Wrist sample {FormatWrist("left", leftWrist, false)} {FormatWrist("right", rightWrist, false)} touchLine={screenTouchLine:F3}");
+            nextWristSampleLogTime = Time.unscaledTime + Mathf.Max(0.1f, wristSampleLogInterval);
+        }
+
+        return false;
+    }
+
+    private bool TryGetVisibleLandmark(PoseData poseData, int index, out Landmark landmark)
+    {
+        landmark = null;
+        if (poseData.landmarks.Count <= index)
+            return false;
+
+        landmark = poseData.landmarks[index];
+        return landmark != null && (landmark.visibility <= 0f || landmark.visibility >= wristVisibilityThreshold);
+    }
+
+    private string FormatWrist(string label, Landmark wrist, bool touching)
+    {
+        if (wrist == null)
+            return $"{label}=missing";
+
+        return $"{label}(y={wrist.y:F3}, visibility={wrist.visibility:F3}, touching={touching})";
     }
 
     private void UpdateLayout()
