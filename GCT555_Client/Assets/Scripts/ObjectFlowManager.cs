@@ -3,6 +3,10 @@ using UnityEngine;
 public class ObjectFlowManager : MonoBehaviour
 {
     private const int ObjectCount = 9;
+    private const int LeftShoulderIndex = 11;
+    private const int RightShoulderIndex = 12;
+    private const int LeftHipIndex = 23;
+    private const int RightHipIndex = 24;
     private const float MinSpacing = 0.45f;
     private const float MaxSpacing = 1.05f;
     private const float MinSideDepth = 0.08f;
@@ -19,8 +23,18 @@ public class ObjectFlowManager : MonoBehaviour
     [Range(0f, 1f)]
     public float position = 0.5f;
 
+    public float gapMultiplier = 2f;
+
+    [Header("Pose Source")]
+    public StreamManager streamManager;
+    public bool driveFromPose = true;
+    public bool mirrorPoseX = false;
+    public bool topIsDepthOne = true;
+    public float poseFollowSpeed = 8f;
+
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
     private Material[] generatedMaterials;
+    private StreamClient poseClient;
 
     private void Awake()
     {
@@ -31,6 +45,7 @@ public class ObjectFlowManager : MonoBehaviour
     private void Update()
     {
         EnsureObjects();
+        ApplyPoseInput();
         UpdateLayout();
     }
 
@@ -86,6 +101,74 @@ public class ObjectFlowManager : MonoBehaviour
         }
     }
 
+    private void ApplyPoseInput()
+    {
+        if (!driveFromPose)
+            return;
+
+        StreamClient client = GetPoseClient();
+        if (client == null || client.latestPoseData == null || client.latestPoseData.landmarks == null)
+            return;
+
+        if (!TryGetPoseCenter(client.latestPoseData, out Vector2 poseCenter))
+            return;
+
+        float targetPosition = mirrorPoseX ? 1f - poseCenter.x : poseCenter.x;
+        float targetDepth = topIsDepthOne ? 1f - poseCenter.y : poseCenter.y;
+        float followT = 1f - Mathf.Exp(-poseFollowSpeed * Time.deltaTime);
+
+        position = Mathf.Lerp(position, Mathf.Clamp01(targetPosition), followT);
+        depth = Mathf.Lerp(depth, Mathf.Clamp01(targetDepth), followT);
+    }
+
+    private StreamClient GetPoseClient()
+    {
+        if (poseClient != null && poseClient.clientType == StreamClient.ClientType.Pose)
+            return poseClient;
+
+        if (streamManager == null)
+        {
+            streamManager = FindObjectOfType<StreamManager>();
+        }
+
+        if (streamManager == null || streamManager.activeClients == null)
+            return null;
+
+        for (int i = 0; i < streamManager.activeClients.Count; i++)
+        {
+            StreamClient client = streamManager.activeClients[i];
+            if (client != null && client.clientType == StreamClient.ClientType.Pose)
+            {
+                poseClient = client;
+                return poseClient;
+            }
+        }
+
+        return null;
+    }
+
+    private bool TryGetPoseCenter(PoseData poseData, out Vector2 center)
+    {
+        center = new Vector2(0.5f, 0.5f);
+
+        if (TryAverageLandmark(poseData, LeftShoulderIndex, RightShoulderIndex, LeftHipIndex, RightHipIndex, out center))
+            return true;
+
+        return TryAverageLandmark(poseData, 0, 1, 2, 3, out center);
+    }
+
+    private bool TryAverageLandmark(PoseData poseData, int a, int b, int c, int d, out Vector2 center)
+    {
+        center = new Vector2(0.5f, 0.5f);
+
+        if (poseData.landmarks.Count <= Mathf.Max(Mathf.Max(a, b), Mathf.Max(c, d)))
+            return false;
+
+        center.x = (poseData.landmarks[a].x + poseData.landmarks[b].x + poseData.landmarks[c].x + poseData.landmarks[d].x) * 0.25f;
+        center.y = (poseData.landmarks[a].y + poseData.landmarks[b].y + poseData.landmarks[c].y + poseData.landmarks[d].y) * 0.25f;
+        return true;
+    }
+
     private void EnsureMaterials()
     {
         if (generatedMaterials != null)
@@ -131,8 +214,8 @@ public class ObjectFlowManager : MonoBehaviour
     {
         float clampedDepth = Mathf.Clamp01(depth);
         float focusedIndex = Mathf.Clamp01(position) * (ObjectCount - 1);
-        float spacing = Mathf.Lerp(MinSpacing, MaxSpacing, clampedDepth);
-        float sideDepth = Mathf.Lerp(MinSideDepth, MaxSideDepth, clampedDepth);
+        float spacing = Mathf.Lerp(MinSpacing, MaxSpacing, clampedDepth) * gapMultiplier;
+        float sideDepth = Mathf.Lerp(MinSideDepth, MaxSideDepth, clampedDepth) * gapMultiplier;
 
         for (int i = 0; i < ObjectCount; i++)
         {
