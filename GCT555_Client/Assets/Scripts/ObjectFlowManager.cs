@@ -2,6 +2,12 @@ using UnityEngine;
 
 public class ObjectFlowManager : MonoBehaviour
 {
+    private enum FlowMode
+    {
+        Overview,
+        Browsing
+    }
+
     private const int ObjectCount = 9;
     private const int LeftShoulderIndex = 11;
     private const int RightShoulderIndex = 12;
@@ -14,6 +20,7 @@ public class ObjectFlowManager : MonoBehaviour
     private const float MaxSideAngle = 62f;
     private const float CenterScale = 0.75f;
     private const float SideScale = 0.52f;
+    private const float BrowsingCenterScale = 1.05f;
     private const float FlowCurve = 0.82f;
 
     [Header("Flow Controls")]
@@ -32,9 +39,41 @@ public class ObjectFlowManager : MonoBehaviour
     public bool topIsDepthOne = true;
     public float poseFollowSpeed = 8f;
 
+    [Header("Stage Controls")]
+    [Range(0f, 1f)]
+    public float browsingLine = 0.5f;
+
+    [Range(0f, 1f)]
+    public float screenTouchLine = 0.92f;
+
+    public bool useBrowsingMode = true;
+    public float browsingSpacing = 0.38f;
+    public float browsingSideDepth = 0.18f;
+    public float browsingYawRange = 55f;
+    public float browsingPitchRange = 35f;
+
+    [Header("Debug Lines")]
+    public bool showDebugLines = true;
+    public float debugLineWidth = 0.025f;
+    public float debugLineLength = 8f;
+    public float debugLineZ = -0.65f;
+    public Color browsingLineColor = Color.cyan;
+    public Color touchLineColor = Color.yellow;
+
+    [Header("Selection Effect")]
+    public Color selectionColor = Color.yellow;
+    public float selectionPulseSpeed = 8f;
+    public float selectionPulseAmount = 0.16f;
+    public float selectionLift = 0.18f;
+
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
+    private readonly Color[] baseColors = { Color.red, Color.green, Color.blue };
     private Material[] generatedMaterials;
     private StreamClient poseClient;
+    private FlowMode currentMode = FlowMode.Overview;
+    private int selectedIndex = -1;
+    private LineRenderer browsingDebugLine;
+    private LineRenderer touchDebugLine;
 
     private void Awake()
     {
@@ -45,8 +84,11 @@ public class ObjectFlowManager : MonoBehaviour
     private void Update()
     {
         EnsureObjects();
+        EnsureDebugLines();
         ApplyPoseInput();
+        UpdateTrackingState();
         UpdateLayout();
+        UpdateDebugLines();
     }
 
     private void OnDestroy()
@@ -59,16 +101,19 @@ public class ObjectFlowManager : MonoBehaviour
             }
         }
 
-        if (generatedMaterials == null)
-            return;
-
-        for (int i = 0; i < generatedMaterials.Length; i++)
+        if (generatedMaterials != null)
         {
-            if (generatedMaterials[i] != null)
+            for (int i = 0; i < generatedMaterials.Length; i++)
             {
-                Destroy(generatedMaterials[i]);
+                if (generatedMaterials[i] != null)
+                {
+                    Destroy(generatedMaterials[i]);
+                }
             }
         }
+
+        DestroyDebugLine(browsingDebugLine);
+        DestroyDebugLine(touchDebugLine);
     }
 
     private void EnsureObjects()
@@ -186,12 +231,11 @@ public class ObjectFlowManager : MonoBehaviour
             return;
         }
 
-        generatedMaterials = new[]
+        generatedMaterials = new Material[ObjectCount];
+        for (int i = 0; i < generatedMaterials.Length; i++)
         {
-            CreateMaterial(shader, Color.red),
-            CreateMaterial(shader, Color.green),
-            CreateMaterial(shader, Color.blue)
-        };
+            generatedMaterials[i] = CreateMaterial(shader, baseColors[i % baseColors.Length]);
+        }
     }
 
     private Material CreateMaterial(Shader shader, Color color)
@@ -210,12 +254,44 @@ public class ObjectFlowManager : MonoBehaviour
         return material;
     }
 
+    private void UpdateTrackingState()
+    {
+        if (!useBrowsingMode)
+        {
+            currentMode = FlowMode.Overview;
+            selectedIndex = -1;
+            return;
+        }
+
+        currentMode = depth >= browsingLine ? FlowMode.Browsing : FlowMode.Overview;
+
+        if (currentMode == FlowMode.Browsing && IsScreenTouched())
+        {
+            selectedIndex = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(position) * (ObjectCount - 1)), 0, ObjectCount - 1);
+        }
+        else if (currentMode == FlowMode.Overview)
+        {
+            selectedIndex = -1;
+        }
+    }
+
+    private bool IsScreenTouched()
+    {
+        return depth >= screenTouchLine;
+    }
+
     private void UpdateLayout()
     {
         float clampedDepth = Mathf.Clamp01(depth);
         float focusedIndex = Mathf.Clamp01(position) * (ObjectCount - 1);
         float spacing = Mathf.Lerp(MinSpacing, MaxSpacing, clampedDepth) * gapMultiplier;
         float sideDepth = Mathf.Lerp(MinSideDepth, MaxSideDepth, clampedDepth) * gapMultiplier;
+
+        if (currentMode == FlowMode.Browsing)
+        {
+            spacing = browsingSpacing;
+            sideDepth = browsingSideDepth;
+        }
 
         for (int i = 0; i < ObjectCount; i++)
         {
@@ -228,12 +304,148 @@ public class ObjectFlowManager : MonoBehaviour
             float sideAmount = Mathf.Clamp01(absOffset);
             float x = Mathf.Sign(offset) * Mathf.Pow(absOffset, FlowCurve) * spacing;
             float z = Mathf.Min(absOffset, 4f) * sideDepth;
+            float xRotation = 0f;
             float yRotation = -Mathf.Sign(offset) * MaxSideAngle * sideAmount;
             float scale = Mathf.Lerp(CenterScale, SideScale, sideAmount);
+            float y = 0f;
 
-            flowObject.transform.localPosition = new Vector3(x, 0f, z);
-            flowObject.transform.localRotation = Quaternion.Euler(0f, yRotation, 0f);
+            bool isSelected = currentMode == FlowMode.Browsing && i == selectedIndex;
+            if (currentMode == FlowMode.Browsing && absOffset < 0.5f)
+            {
+                scale = BrowsingCenterScale;
+                Vector2 detailRotation = GetBodyDetailRotation();
+                xRotation = detailRotation.y;
+                yRotation += detailRotation.x;
+            }
+
+            if (isSelected)
+            {
+                float pulse = 1f + Mathf.Sin(Time.time * selectionPulseSpeed) * selectionPulseAmount;
+                scale *= pulse;
+                y += selectionLift;
+            }
+
+            flowObject.transform.localPosition = new Vector3(x, y, z);
+            flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, 0f);
             flowObject.transform.localScale = Vector3.one * scale;
+            UpdateSelectionVisual(i, isSelected);
         }
+    }
+
+    private Vector2 GetBodyDetailRotation()
+    {
+        float yaw = (Mathf.Clamp01(position) - 0.5f) * browsingYawRange;
+        float browsingSpan = Mathf.Max(0.001f, 1f - browsingLine);
+        float browsingProgress = Mathf.Clamp01((Mathf.Clamp01(depth) - browsingLine) / browsingSpan);
+        float pitch = (browsingProgress - 0.5f) * browsingPitchRange;
+        return new Vector2(yaw, pitch);
+    }
+
+    private void UpdateSelectionVisual(int index, bool isSelected)
+    {
+        Renderer flowRenderer = flowObjects[index].GetComponent<Renderer>();
+        if (flowRenderer == null || generatedMaterials == null)
+            return;
+
+        Material material = generatedMaterials[index % generatedMaterials.Length];
+        Color color = isSelected ? Color.Lerp(baseColors[index % baseColors.Length], selectionColor, 0.75f) : baseColors[index % baseColors.Length];
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_EmissionColor"))
+        {
+            if (isSelected)
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", selectionColor * 1.2f);
+            }
+            else
+            {
+                material.SetColor("_EmissionColor", Color.black);
+            }
+        }
+    }
+
+    private void EnsureDebugLines()
+    {
+        if (browsingDebugLine == null)
+        {
+            browsingDebugLine = CreateDebugLine("BrowsingLine", browsingLineColor);
+        }
+
+        if (touchDebugLine == null)
+        {
+            touchDebugLine = CreateDebugLine("TouchLine", touchLineColor);
+        }
+    }
+
+    private LineRenderer CreateDebugLine(string lineName, Color color)
+    {
+        GameObject lineObject = new GameObject(lineName);
+        lineObject.transform.SetParent(transform, false);
+
+        LineRenderer lineRenderer = lineObject.AddComponent<LineRenderer>();
+        lineRenderer.useWorldSpace = false;
+        lineRenderer.positionCount = 2;
+        lineRenderer.startWidth = debugLineWidth;
+        lineRenderer.endWidth = debugLineWidth;
+
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader != null)
+        {
+            lineRenderer.material = new Material(shader);
+        }
+
+        lineRenderer.startColor = color;
+        lineRenderer.endColor = color;
+        return lineRenderer;
+    }
+
+    private void UpdateDebugLines()
+    {
+        if (browsingDebugLine == null || touchDebugLine == null)
+            return;
+
+        browsingDebugLine.gameObject.SetActive(showDebugLines);
+        touchDebugLine.gameObject.SetActive(showDebugLines);
+
+        if (!showDebugLines)
+            return;
+
+        UpdateDebugLine(browsingDebugLine, browsingLine, browsingLineColor);
+        UpdateDebugLine(touchDebugLine, screenTouchLine, touchLineColor);
+    }
+
+    private void UpdateDebugLine(LineRenderer lineRenderer, float normalizedY, Color color)
+    {
+        float localY = NormalizedFloorToLocalY(normalizedY);
+        float halfLength = debugLineLength * 0.5f;
+        lineRenderer.startWidth = debugLineWidth;
+        lineRenderer.endWidth = debugLineWidth;
+        lineRenderer.startColor = color;
+        lineRenderer.endColor = color;
+        lineRenderer.SetPosition(0, new Vector3(-halfLength, localY, debugLineZ));
+        lineRenderer.SetPosition(1, new Vector3(halfLength, localY, debugLineZ));
+    }
+
+    private float NormalizedFloorToLocalY(float normalizedY)
+    {
+        return Mathf.Lerp(2f, -2f, Mathf.Clamp01(normalizedY));
+    }
+
+    private void DestroyDebugLine(LineRenderer lineRenderer)
+    {
+        if (lineRenderer == null)
+            return;
+
+        if (lineRenderer.material != null)
+        {
+            Destroy(lineRenderer.material);
+        }
+
+        Destroy(lineRenderer.gameObject);
     }
 }
