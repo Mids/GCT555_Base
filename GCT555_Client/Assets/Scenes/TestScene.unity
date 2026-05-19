@@ -932,6 +932,13 @@ MonoBehaviour:
   mirrorPoseX: 0
   topIsDepthOne: 0
   poseFollowSpeed: 8
+  leonardAvatarPrefab: {fileID: 100100000, guid: 1a5dee5e6cfba894d8ab1614784a1f37, type: 3}
+  spawnLeonardAvatar: 1
+  leonardLocalXRange: {x: -3, y: 3}
+  leonardLocalZRange: {x: -1.5, y: 2}
+  leonardLocalY: -1.25
+  leonardLocalEulerAngles: {x: 0, y: 0, z: 0}
+  leonardPositionFollowSpeed: 10
   browsingLine: 0.5
   screenTouchLine: 0.92
   useBrowsingMode: 1

@@ -41,6 +41,15 @@ public class ObjectFlowManager : MonoBehaviour
     public bool topIsDepthOne = true;
     public float poseFollowSpeed = 8f;
 
+    [Header("Leonard Avatar")]
+    public GameObject leonardAvatarPrefab;
+    public bool spawnLeonardAvatar = true;
+    public Vector2 leonardLocalXRange = new Vector2(-3f, 3f);
+    public Vector2 leonardLocalZRange = new Vector2(-1.5f, 2f);
+    public float leonardLocalY = -1.25f;
+    public Vector3 leonardLocalEulerAngles = Vector3.zero;
+    public float leonardPositionFollowSpeed = 10f;
+
     [Header("Stage Controls")]
     [Range(0f, 1f)]
     public float browsingLine = 0.5f;
@@ -89,6 +98,7 @@ public class ObjectFlowManager : MonoBehaviour
     private int selectedIndex = -1;
     private bool wasWristTouching;
     private float nextWristSampleLogTime;
+    private GameObject leonardAvatarInstance;
     private bool hasTwoHandBaseline;
     private int twoHandManipulationIndex = -1;
     private float baselineWristDistance;
@@ -113,6 +123,7 @@ public class ObjectFlowManager : MonoBehaviour
     {
         EnsureObjects();
         ApplyPoseInput();
+        UpdateLeonardAvatar();
         UpdateTrackingState();
         UpdateTwoHandManipulation();
         UpdateLayout();
@@ -140,6 +151,10 @@ public class ObjectFlowManager : MonoBehaviour
             }
         }
 
+        if (leonardAvatarInstance != null)
+        {
+            Destroy(leonardAvatarInstance);
+        }
     }
 
     private void EnsureObjects()
@@ -190,6 +205,34 @@ public class ObjectFlowManager : MonoBehaviour
 
         position = Mathf.Lerp(position, Mathf.Clamp01(targetPosition), followT);
         depth = Mathf.Lerp(depth, Mathf.Clamp01(targetDepth), followT);
+    }
+
+    private void UpdateLeonardAvatar()
+    {
+        if (!spawnLeonardAvatar || leonardAvatarPrefab == null)
+            return;
+
+        Vector3 targetLocalPosition = GetLeonardTargetLocalPosition();
+
+        if (leonardAvatarInstance == null)
+        {
+            leonardAvatarInstance = Instantiate(leonardAvatarPrefab, transform);
+            leonardAvatarInstance.name = "LeonardAvatar";
+            leonardAvatarInstance.transform.localPosition = targetLocalPosition;
+            leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
+        }
+
+        float followT = 1f - Mathf.Exp(-leonardPositionFollowSpeed * Time.deltaTime);
+
+        leonardAvatarInstance.transform.localPosition = Vector3.Lerp(leonardAvatarInstance.transform.localPosition, targetLocalPosition, followT);
+        leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
+    }
+
+    private Vector3 GetLeonardTargetLocalPosition()
+    {
+        float localX = Mathf.Lerp(leonardLocalXRange.x, leonardLocalXRange.y, Mathf.Clamp01(position));
+        float localZ = Mathf.Lerp(leonardLocalZRange.x, leonardLocalZRange.y, Mathf.Clamp01(depth));
+        return new Vector3(localX, leonardLocalY, localZ);
     }
 
     private StreamClient GetPoseClient()
