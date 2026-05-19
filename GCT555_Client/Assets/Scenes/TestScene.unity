@@ -850,7 +850,7 @@ MonoBehaviour:
     name: Wall2
     ipAddress: 127.0.0.1
     quadTransform: {fileID: 282124860}
-    activeType: 1
+    activeType: 0
     poseSocketPort: 5050
     handSocketPort: 5051
     faceSocketPort: 5052
@@ -864,7 +864,7 @@ MonoBehaviour:
   globalDepthScale: 3
   globalPositionOffset: {x: 0, y: 0, z: -4}
   globalInvertDepth: 0
-  landmarkPrefab: {fileID: 0}
+  landmarkPrefab: {fileID: 5742732458933112038, guid: ab0a6df3ade541648b875eb0edd894d2, type: 3}
 --- !u!4 &1405606664
 Transform:
   m_ObjectHideFlags: 0
@@ -932,7 +932,7 @@ MonoBehaviour:
   mirrorPoseX: 0
   topIsDepthOne: 0
   poseFollowSpeed: 8
-  leonardAvatarPrefab: {fileID: 100100000, guid: 1a5dee5e6cfba894d8ab1614784a1f37, type: 3}
+  leonardAvatarPrefab: {fileID: 919132149155446097, guid: 1a5dee5e6cfba894d8ab1614784a1f37, type: 3}
   spawnLeonardAvatar: 1
   leonardLocalXRange: {x: -3, y: 3}
   leonardLocalZRange: {x: -1.5, y: 2}
