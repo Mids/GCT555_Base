@@ -932,6 +932,32 @@ MonoBehaviour:
   mirrorPoseX: 0
   topIsDepthOne: 0
   poseFollowSpeed: 8
+  browsingLine: 0.5
+  screenTouchLine: 0.92
+  useBrowsingMode: 1
+  browsingYawRange: 55
+  browsingPitchRange: 35
+  useWristTouchDetection: 1
+  wristVisibilityThreshold: 0.35
+  logWristTouchDebug: 1
+  wristSampleLogInterval: 0.75
+  useTwoHandManipulation: 1
+  minManipulationScale: 0.6
+  maxManipulationScale: 1.8
+  manipulationYawRange: 90
+  manipulationPitchRange: 70
+  manipulationRollMultiplier: 1
+  manipulationSmoothing: 12
+  logTwoHandManipulationDebug: 1
+  showDebugLines: 1
+  debugLineLength: 8
+  debugLineZ: 2
+  browsingLineColor: {r: 0, g: 1, b: 1, a: 1}
+  touchLineColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  selectionColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  selectionPulseSpeed: 8
+  selectionPulseAmount: 0.16
+  selectionLift: 0.18
 --- !u!1 &2132842236
 GameObject:
   m_ObjectHideFlags: 0

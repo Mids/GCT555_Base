@@ -58,6 +58,16 @@ public class ObjectFlowManager : MonoBehaviour
     public bool logWristTouchDebug = true;
     public float wristSampleLogInterval = 0.75f;
 
+    [Header("Two-Hand Manipulation")]
+    public bool useTwoHandManipulation = true;
+    public float minManipulationScale = 0.6f;
+    public float maxManipulationScale = 1.8f;
+    public float manipulationYawRange = 90f;
+    public float manipulationPitchRange = 70f;
+    public float manipulationRollMultiplier = 1f;
+    public float manipulationSmoothing = 12f;
+    public bool logTwoHandManipulationDebug = true;
+
     [Header("Debug Lines")]
     public bool showDebugLines = true;
     public float debugLineLength = 8f;
@@ -79,6 +89,19 @@ public class ObjectFlowManager : MonoBehaviour
     private int selectedIndex = -1;
     private bool wasWristTouching;
     private float nextWristSampleLogTime;
+    private bool hasTwoHandBaseline;
+    private int twoHandManipulationIndex = -1;
+    private float baselineWristDistance;
+    private float baselineWristAngle;
+    private Vector2 baselineWristMidpoint;
+    private float baselineSelectedScaleMultiplier = 1f;
+    private float baselineSelectedYawOffset;
+    private float baselineSelectedPitchOffset;
+    private float baselineSelectedRollOffset;
+    private float selectedScaleMultiplier = 1f;
+    private float selectedYawOffset;
+    private float selectedPitchOffset;
+    private float selectedRollOffset;
 
     private void Awake()
     {
@@ -91,6 +114,7 @@ public class ObjectFlowManager : MonoBehaviour
         EnsureObjects();
         ApplyPoseInput();
         UpdateTrackingState();
+        UpdateTwoHandManipulation();
         UpdateLayout();
         UpdateDebugLines();
     }
@@ -262,6 +286,7 @@ public class ObjectFlowManager : MonoBehaviour
         {
             currentMode = FlowMode.Overview;
             selectedIndex = -1;
+            ResetTwoHandManipulation();
             return;
         }
 
@@ -280,6 +305,7 @@ public class ObjectFlowManager : MonoBehaviour
         else if (currentMode == FlowMode.Overview)
         {
             selectedIndex = -1;
+            ResetTwoHandManipulation();
         }
     }
 
@@ -307,8 +333,10 @@ public class ObjectFlowManager : MonoBehaviour
         if (poseData == null || poseData.landmarks == null)
             return false;
 
-        bool leftTouch = TryGetVisibleLandmark(poseData, LeftWristIndex, out Landmark leftWrist) && leftWrist.y >= screenTouchLine;
-        bool rightTouch = TryGetVisibleLandmark(poseData, RightWristIndex, out Landmark rightWrist) && rightWrist.y >= screenTouchLine;
+        bool hasLeftWrist = TryGetVisibleLandmark(poseData, LeftWristIndex, out Landmark leftWrist);
+        bool hasRightWrist = TryGetVisibleLandmark(poseData, RightWristIndex, out Landmark rightWrist);
+        bool leftTouch = hasLeftWrist && leftWrist.y >= screenTouchLine;
+        bool rightTouch = hasRightWrist && rightWrist.y >= screenTouchLine;
 
         if (leftTouch || rightTouch)
         {
@@ -343,6 +371,110 @@ public class ObjectFlowManager : MonoBehaviour
         return $"{label}(y={wrist.y:F3}, visibility={wrist.visibility:F3}, touching={touching})";
     }
 
+    private void UpdateTwoHandManipulation()
+    {
+        if (!useTwoHandManipulation || currentMode != FlowMode.Browsing || selectedIndex < 0)
+        {
+            ResetTwoHandManipulation();
+            return;
+        }
+
+        if (!TryGetBothWristControls(out Vector2 leftWrist, out Vector2 rightWrist))
+        {
+            hasTwoHandBaseline = false;
+            return;
+        }
+
+        float wristDistance = Vector2.Distance(leftWrist, rightWrist);
+        if (wristDistance <= 0.001f)
+            return;
+
+        Vector2 wristMidpoint = (leftWrist + rightWrist) * 0.5f;
+        float wristAngle = Mathf.Atan2(rightWrist.y - leftWrist.y, rightWrist.x - leftWrist.x) * Mathf.Rad2Deg;
+
+        if (!hasTwoHandBaseline || twoHandManipulationIndex != selectedIndex)
+        {
+            bool selectedObjectChanged = twoHandManipulationIndex != selectedIndex;
+            if (selectedObjectChanged)
+            {
+                selectedScaleMultiplier = 1f;
+                selectedYawOffset = 0f;
+                selectedPitchOffset = 0f;
+                selectedRollOffset = 0f;
+            }
+
+            hasTwoHandBaseline = true;
+            twoHandManipulationIndex = selectedIndex;
+            baselineWristDistance = wristDistance;
+            baselineWristAngle = wristAngle;
+            baselineWristMidpoint = wristMidpoint;
+            baselineSelectedScaleMultiplier = selectedScaleMultiplier;
+            baselineSelectedYawOffset = selectedYawOffset;
+            baselineSelectedPitchOffset = selectedPitchOffset;
+            baselineSelectedRollOffset = selectedRollOffset;
+
+            if (logTwoHandManipulationDebug)
+            {
+                Debug.Log($"[ObjectFlowManager] Two-hand manipulation started for FlowCube_{selectedIndex + 1}. wristDistance={wristDistance:F3}, wristMidpoint={wristMidpoint}");
+            }
+
+            return;
+        }
+
+        float targetScale = Mathf.Clamp(baselineSelectedScaleMultiplier * wristDistance / Mathf.Max(0.001f, baselineWristDistance), minManipulationScale, maxManipulationScale);
+        Vector2 midpointOffset = wristMidpoint - baselineWristMidpoint;
+        float targetYaw = baselineSelectedYawOffset + midpointOffset.x * manipulationYawRange;
+        float targetPitch = baselineSelectedPitchOffset - midpointOffset.y * manipulationPitchRange;
+        float targetRoll = baselineSelectedRollOffset + Mathf.DeltaAngle(baselineWristAngle, wristAngle) * manipulationRollMultiplier;
+        float follow = 1f - Mathf.Exp(-manipulationSmoothing * Time.deltaTime);
+
+        selectedScaleMultiplier = Mathf.Lerp(selectedScaleMultiplier, targetScale, follow);
+        selectedYawOffset = Mathf.Lerp(selectedYawOffset, targetYaw, follow);
+        selectedPitchOffset = Mathf.Lerp(selectedPitchOffset, targetPitch, follow);
+        selectedRollOffset = Mathf.LerpAngle(selectedRollOffset, targetRoll, follow);
+    }
+
+    private bool TryGetBothWristControls(out Vector2 leftWristControl, out Vector2 rightWristControl)
+    {
+        leftWristControl = Vector2.zero;
+        rightWristControl = Vector2.zero;
+
+        StreamClient client = GetPoseClient();
+        PoseData poseData = client != null ? client.latestPoseData : null;
+        if (poseData == null || poseData.landmarks == null)
+            return false;
+
+        if (!TryGetVisibleLandmark(poseData, LeftWristIndex, out Landmark leftWrist))
+            return false;
+
+        if (!TryGetVisibleLandmark(poseData, RightWristIndex, out Landmark rightWrist))
+            return false;
+
+        leftWristControl = GetManipulationControlPoint(leftWrist);
+        rightWristControl = GetManipulationControlPoint(rightWrist);
+        return true;
+    }
+
+    private Vector2 GetManipulationControlPoint(Landmark landmark)
+    {
+        float x = mirrorPoseX ? 1f - landmark.x : landmark.x;
+        return new Vector2(x, landmark.y);
+    }
+
+    private void ResetTwoHandManipulation()
+    {
+        hasTwoHandBaseline = false;
+        twoHandManipulationIndex = -1;
+        baselineSelectedScaleMultiplier = 1f;
+        baselineSelectedYawOffset = 0f;
+        baselineSelectedPitchOffset = 0f;
+        baselineSelectedRollOffset = 0f;
+        selectedScaleMultiplier = 1f;
+        selectedYawOffset = 0f;
+        selectedPitchOffset = 0f;
+        selectedRollOffset = 0f;
+    }
+
     private void UpdateLayout()
     {
         float clampedDepth = Mathf.Clamp01(depth);
@@ -363,6 +495,7 @@ public class ObjectFlowManager : MonoBehaviour
             float z = Mathf.Min(absOffset, 4f) * sideDepth;
             float xRotation = 0f;
             float yRotation = -Mathf.Sign(offset) * MaxSideAngle * sideAmount;
+            float zRotation = 0f;
             float scale = Mathf.Lerp(CenterScale, SideScale, sideAmount);
             float y = 0f;
 
@@ -378,12 +511,16 @@ public class ObjectFlowManager : MonoBehaviour
             if (isSelected)
             {
                 float pulse = 1f + Mathf.Sin(Time.time * selectionPulseSpeed) * selectionPulseAmount;
+                xRotation += selectedPitchOffset;
+                yRotation += selectedYawOffset;
+                zRotation += selectedRollOffset;
+                scale *= selectedScaleMultiplier;
                 scale *= pulse;
                 y += selectionLift;
             }
 
             flowObject.transform.localPosition = new Vector3(x, y, z);
-            flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, 0f);
+            flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, zRotation);
             flowObject.transform.localScale = Vector3.one * scale;
             UpdateSelectionVisual(i, isSelected);
         }
