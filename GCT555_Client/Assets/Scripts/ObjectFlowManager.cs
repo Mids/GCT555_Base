@@ -49,15 +49,10 @@ public class ObjectFlowManager : MonoBehaviour
     public float leonardMoveSpeedDampTime = 0.12f;
     public bool spawnLeonardAvatar = true;
     public Vector2 leonardLocalXRange = new Vector2(-3f, 3f);
-    public Vector2 leonardLocalZRange = new Vector2(-1.5f, 2f);
+    public Vector2 leonardLocalZRange = new Vector2(-3f, 0.5f);
     public float leonardLocalY = -1.25f;
     public Vector3 leonardLocalEulerAngles = Vector3.zero;
     public float leonardPositionFollowSpeed = 10f;
-    public bool mirrorLeonardPositionX = false;
-    public bool mirrorLeonardModelX = true;
-    public bool keepLeonardBehindObjectFlow = true;
-    public float leonardBehindFlowZ = 1.25f;
-    public bool faceLeonardTowardCamera = true;
 
     [Header("Stage Controls")]
     [Range(0f, 1f)]
@@ -108,7 +103,6 @@ public class ObjectFlowManager : MonoBehaviour
     public float detailScale = 1.85f;
     public float detailSideSpacing = 1.75f;
     public float detailBackgroundScale = 0.42f;
-    public float detailBackgroundZ = 0.65f;
     public float detailReturnDepthDelta = 0.12f;
     [Range(0f, 1f)]
     public float detailBackgroundDim = 0.72f;
@@ -141,7 +135,6 @@ public class ObjectFlowManager : MonoBehaviour
     private TextMesh modeHintLabel;
     private GameObject leonardAvatarInstance;
     private Animator leonardAnimator;
-    private Vector3 leonardBaseLocalScale = Vector3.one;
     private bool hasLeonardMoveSpeedParameter;
     private bool hasLeonardPointingParameter;
     private bool hasPreviousLeonardLocalPosition;
@@ -280,18 +273,15 @@ public class ObjectFlowManager : MonoBehaviour
         {
             leonardAvatarInstance = Instantiate(leonardAvatarPrefab, transform);
             leonardAvatarInstance.name = "LeonardAvatar";
-            leonardBaseLocalScale = leonardAvatarInstance.transform.localScale;
             leonardAvatarInstance.transform.localPosition = targetLocalPosition;
-            leonardAvatarInstance.transform.localRotation = GetLeonardTargetLocalRotation();
-            ApplyLeonardMirrorScale();
+            leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
             ConfigureLeonardAnimator();
         }
 
         float followT = 1f - Mathf.Exp(-leonardPositionFollowSpeed * Time.deltaTime);
 
         leonardAvatarInstance.transform.localPosition = Vector3.Lerp(leonardAvatarInstance.transform.localPosition, targetLocalPosition, followT);
-        leonardAvatarInstance.transform.localRotation = GetLeonardTargetLocalRotation();
-        ApplyLeonardMirrorScale();
+        leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
     }
 
     private void ConfigureLeonardAnimator()
@@ -373,30 +363,9 @@ public class ObjectFlowManager : MonoBehaviour
 
     private Vector3 GetLeonardTargetLocalPosition()
     {
-        float avatarPosition = mirrorLeonardPositionX ? 1f - Mathf.Clamp01(position) : Mathf.Clamp01(position);
-        float localX = Mathf.Lerp(leonardLocalXRange.x, leonardLocalXRange.y, avatarPosition);
-        float localZ = keepLeonardBehindObjectFlow ? leonardBehindFlowZ : Mathf.Lerp(leonardLocalZRange.x, leonardLocalZRange.y, Mathf.Clamp01(depth));
+        float localX = Mathf.Lerp(leonardLocalXRange.x, leonardLocalXRange.y, Mathf.Clamp01(position));
+        float localZ = Mathf.Lerp(leonardLocalZRange.x, leonardLocalZRange.y, Mathf.Clamp01(depth));
         return new Vector3(localX, leonardLocalY, localZ);
-    }
-
-    private Quaternion GetLeonardTargetLocalRotation()
-    {
-        Vector3 eulerAngles = leonardLocalEulerAngles;
-        if (faceLeonardTowardCamera)
-        {
-            eulerAngles.y += 180f;
-        }
-
-        return Quaternion.Euler(eulerAngles);
-    }
-
-    private void ApplyLeonardMirrorScale()
-    {
-        if (leonardAvatarInstance == null)
-            return;
-
-        float xSign = mirrorLeonardModelX ? -1f : 1f;
-        leonardAvatarInstance.transform.localScale = new Vector3(Mathf.Abs(leonardBaseLocalScale.x) * xSign, leonardBaseLocalScale.y, Mathf.Abs(leonardBaseLocalScale.z));
     }
 
     private StreamClient GetPoseClient()
@@ -770,7 +739,6 @@ public class ObjectFlowManager : MonoBehaviour
             {
                 int detailOffset = i - selectedIndex;
                 x = detailOffset * detailSideSpacing;
-                z = isSelected ? -0.15f : detailBackgroundZ;
                 scale = isSelected ? detailScale : detailBackgroundScale;
                 yRotation = 0f;
                 sideAmount = isSelected ? 0f : 1f;

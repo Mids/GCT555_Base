@@ -544,13 +544,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.25, z: -7}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
+  m_LocalPosition: {x: 0, y: 1.25, z: 3}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
 --- !u!114 &330585547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -907,7 +907,7 @@ Transform:
   m_GameObject: {fileID: 1964712301}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.25, z: -2}
+  m_LocalPosition: {x: 0, y: 0.5, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -940,15 +940,10 @@ MonoBehaviour:
   leonardMoveSpeedDampTime: 0.12
   spawnLeonardAvatar: 1
   leonardLocalXRange: {x: -3, y: 3}
-  leonardLocalZRange: {x: -1.5, y: 2}
-  leonardLocalY: -1.25
+  leonardLocalZRange: {x: -3, y: 0.5}
+  leonardLocalY: -0.5
   leonardLocalEulerAngles: {x: 0, y: 0, z: 0}
   leonardPositionFollowSpeed: 10
-  mirrorLeonardPositionX: 0
-  mirrorLeonardModelX: 1
-  keepLeonardBehindObjectFlow: 1
-  leonardBehindFlowZ: 1.25
-  faceLeonardTowardCamera: 1
   browsingLine: 0.5
   screenTouchLine: 0.92
   useBrowsingMode: 1
@@ -973,17 +968,16 @@ MonoBehaviour:
   touchLineColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   selectionColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   selectionPulseSpeed: 8
-  selectionPulseAmount: 0.16
-  selectionLift: 0.18
+  selectionPulseAmount: 0
+  selectionLift: 0
   candidateColor: {r: 1, g: 0.65, b: 0.15, a: 1}
   candidateScaleBoost: 1.12
   candidateLift: 0.08
   touchConfirmationDuration: 0.45
-  touchConfirmedScaleBoost: 1.22
-  detailScale: 1.85
-  detailSideSpacing: 1.75
+  touchConfirmedScaleBoost: 1
+  detailScale: 1
+  detailSideSpacing: 1.5
   detailBackgroundScale: 0.42
-  detailBackgroundZ: 0.65
   detailReturnDepthDelta: 0.12
   detailBackgroundDim: 0.72
   showModeLabels: 1
