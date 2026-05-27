@@ -182,7 +182,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 60969003}
-  m_Enabled: 0
+  m_Enabled: 1
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -520,7 +520,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 0
-  orthographic size: 5
+  orthographic size: 1.4
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -545,7 +545,7 @@ Transform:
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -6}
+  m_LocalPosition: {x: 0, y: 1.25, z: -7}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -944,6 +944,11 @@ MonoBehaviour:
   leonardLocalY: -1.25
   leonardLocalEulerAngles: {x: 0, y: 0, z: 0}
   leonardPositionFollowSpeed: 10
+  mirrorLeonardPositionX: 0
+  mirrorLeonardModelX: 1
+  keepLeonardBehindObjectFlow: 1
+  leonardBehindFlowZ: 1.25
+  faceLeonardTowardCamera: 1
   browsingLine: 0.5
   screenTouchLine: 0.92
   useBrowsingMode: 1
@@ -970,6 +975,29 @@ MonoBehaviour:
   selectionPulseSpeed: 8
   selectionPulseAmount: 0.16
   selectionLift: 0.18
+  candidateColor: {r: 1, g: 0.65, b: 0.15, a: 1}
+  candidateScaleBoost: 1.12
+  candidateLift: 0.08
+  touchConfirmationDuration: 0.45
+  touchConfirmedScaleBoost: 1.22
+  detailScale: 1.85
+  detailSideSpacing: 1.75
+  detailBackgroundScale: 0.42
+  detailBackgroundZ: 0.65
+  detailReturnDepthDelta: 0.12
+  detailBackgroundDim: 0.72
+  showModeLabels: 1
+  modeBannerLocalPosition: {x: 0, y: 1.72, z: -0.45}
+  modeHintLocalPosition: {x: 0, y: -1.72, z: -0.45}
+  anchorModeLabelsToCamera: 1
+  modeLabelCamera: {fileID: 0}
+  modeBannerViewportPosition: {x: 0.5, y: 0.88}
+  modeHintViewportPosition: {x: 0.5, y: 0.12}
+  modeLabelCameraDistance: 6.6
+  modeLabelMaxViewportWidth: 0.62
+  modeBannerCharacterSize: 0.075
+  modeHintCharacterSize: 0.058
+  modeLabelMinCharacterSize: 0.035
 --- !u!1 &2132842236
 GameObject:
   m_ObjectHideFlags: 0

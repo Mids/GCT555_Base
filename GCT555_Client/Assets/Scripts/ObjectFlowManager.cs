@@ -5,7 +5,9 @@ public class ObjectFlowManager : MonoBehaviour
     private enum FlowMode
     {
         Overview,
-        Browsing
+        Browsing,
+        TouchConfirmed,
+        Detail
     }
 
     private const int ObjectCount = 9;
@@ -51,6 +53,11 @@ public class ObjectFlowManager : MonoBehaviour
     public float leonardLocalY = -1.25f;
     public Vector3 leonardLocalEulerAngles = Vector3.zero;
     public float leonardPositionFollowSpeed = 10f;
+    public bool mirrorLeonardPositionX = false;
+    public bool mirrorLeonardModelX = true;
+    public bool keepLeonardBehindObjectFlow = true;
+    public float leonardBehindFlowZ = 1.25f;
+    public bool faceLeonardTowardCamera = true;
 
     [Header("Stage Controls")]
     [Range(0f, 1f)]
@@ -92,16 +99,49 @@ public class ObjectFlowManager : MonoBehaviour
     public float selectionPulseAmount = 0.16f;
     public float selectionLift = 0.18f;
 
+    [Header("Mode Switching")]
+    public Color candidateColor = new Color(1f, 0.65f, 0.15f);
+    public float candidateScaleBoost = 1.12f;
+    public float candidateLift = 0.08f;
+    public float touchConfirmationDuration = 0.45f;
+    public float touchConfirmedScaleBoost = 1.22f;
+    public float detailScale = 1.85f;
+    public float detailSideSpacing = 1.75f;
+    public float detailBackgroundScale = 0.42f;
+    public float detailBackgroundZ = 0.65f;
+    public float detailReturnDepthDelta = 0.12f;
+    [Range(0f, 1f)]
+    public float detailBackgroundDim = 0.72f;
+    public bool showModeLabels = true;
+    public Vector3 modeBannerLocalPosition = new Vector3(0f, 1.72f, -0.45f);
+    public Vector3 modeHintLocalPosition = new Vector3(0f, -1.72f, -0.45f);
+    public bool anchorModeLabelsToCamera = true;
+    public Camera modeLabelCamera;
+    public Vector2 modeBannerViewportPosition = new Vector2(0.5f, 0.88f);
+    public Vector2 modeHintViewportPosition = new Vector2(0.5f, 0.12f);
+    public float modeLabelCameraDistance = 6.6f;
+    [Range(0.1f, 0.95f)]
+    public float modeLabelMaxViewportWidth = 0.62f;
+    public float modeBannerCharacterSize = 0.075f;
+    public float modeHintCharacterSize = 0.058f;
+    public float modeLabelMinCharacterSize = 0.035f;
+
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
     private readonly Color[] baseColors = { Color.red, Color.green, Color.blue };
     private Material[] generatedMaterials;
     private StreamClient poseClient;
     private FlowMode currentMode = FlowMode.Overview;
+    private int candidateIndex = -1;
     private int selectedIndex = -1;
     private bool wasWristTouching;
     private float nextWristSampleLogTime;
+    private float touchConfirmationEndTime;
+    private float detailEntryDepth;
+    private TextMesh modeBannerLabel;
+    private TextMesh modeHintLabel;
     private GameObject leonardAvatarInstance;
     private Animator leonardAnimator;
+    private Vector3 leonardBaseLocalScale = Vector3.one;
     private bool hasLeonardMoveSpeedParameter;
     private bool hasLeonardPointingParameter;
     private bool hasPreviousLeonardLocalPosition;
@@ -123,18 +163,22 @@ public class ObjectFlowManager : MonoBehaviour
     private void Awake()
     {
         EnsureObjects();
+        EnsureModeLabels();
         UpdateLayout();
+        UpdateModeLabels();
     }
 
     private void Update()
     {
         EnsureObjects();
+        EnsureModeLabels();
         ApplyPoseInput();
         UpdateLeonardAvatar();
         UpdateTrackingState();
         UpdateLeonardAnimation();
         UpdateTwoHandManipulation();
         UpdateLayout();
+        UpdateModeLabels();
         UpdateDebugLines();
     }
 
@@ -162,6 +206,16 @@ public class ObjectFlowManager : MonoBehaviour
         if (leonardAvatarInstance != null)
         {
             Destroy(leonardAvatarInstance);
+        }
+
+        if (modeBannerLabel != null)
+        {
+            Destroy(modeBannerLabel.gameObject);
+        }
+
+        if (modeHintLabel != null)
+        {
+            Destroy(modeHintLabel.gameObject);
         }
     }
 
@@ -226,15 +280,18 @@ public class ObjectFlowManager : MonoBehaviour
         {
             leonardAvatarInstance = Instantiate(leonardAvatarPrefab, transform);
             leonardAvatarInstance.name = "LeonardAvatar";
+            leonardBaseLocalScale = leonardAvatarInstance.transform.localScale;
             leonardAvatarInstance.transform.localPosition = targetLocalPosition;
-            leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
+            leonardAvatarInstance.transform.localRotation = GetLeonardTargetLocalRotation();
+            ApplyLeonardMirrorScale();
             ConfigureLeonardAnimator();
         }
 
         float followT = 1f - Mathf.Exp(-leonardPositionFollowSpeed * Time.deltaTime);
 
         leonardAvatarInstance.transform.localPosition = Vector3.Lerp(leonardAvatarInstance.transform.localPosition, targetLocalPosition, followT);
-        leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
+        leonardAvatarInstance.transform.localRotation = GetLeonardTargetLocalRotation();
+        ApplyLeonardMirrorScale();
     }
 
     private void ConfigureLeonardAnimator()
@@ -309,16 +366,37 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (hasLeonardPointingParameter)
         {
-            bool shouldPoint = currentMode == FlowMode.Browsing && selectedIndex >= 0;
+            bool shouldPoint = IsSelectionActive();
             leonardAnimator.SetBool(LeonardIsPointingHash, shouldPoint);
         }
     }
 
     private Vector3 GetLeonardTargetLocalPosition()
     {
-        float localX = Mathf.Lerp(leonardLocalXRange.x, leonardLocalXRange.y, Mathf.Clamp01(position));
-        float localZ = Mathf.Lerp(leonardLocalZRange.x, leonardLocalZRange.y, Mathf.Clamp01(depth));
+        float avatarPosition = mirrorLeonardPositionX ? 1f - Mathf.Clamp01(position) : Mathf.Clamp01(position);
+        float localX = Mathf.Lerp(leonardLocalXRange.x, leonardLocalXRange.y, avatarPosition);
+        float localZ = keepLeonardBehindObjectFlow ? leonardBehindFlowZ : Mathf.Lerp(leonardLocalZRange.x, leonardLocalZRange.y, Mathf.Clamp01(depth));
         return new Vector3(localX, leonardLocalY, localZ);
+    }
+
+    private Quaternion GetLeonardTargetLocalRotation()
+    {
+        Vector3 eulerAngles = leonardLocalEulerAngles;
+        if (faceLeonardTowardCamera)
+        {
+            eulerAngles.y += 180f;
+        }
+
+        return Quaternion.Euler(eulerAngles);
+    }
+
+    private void ApplyLeonardMirrorScale()
+    {
+        if (leonardAvatarInstance == null)
+            return;
+
+        float xSign = mirrorLeonardModelX ? -1f : 1f;
+        leonardAvatarInstance.transform.localScale = new Vector3(Mathf.Abs(leonardBaseLocalScale.x) * xSign, leonardBaseLocalScale.y, Mathf.Abs(leonardBaseLocalScale.z));
     }
 
     private StreamClient GetPoseClient()
@@ -414,28 +492,86 @@ public class ObjectFlowManager : MonoBehaviour
         if (!useBrowsingMode)
         {
             currentMode = FlowMode.Overview;
-            selectedIndex = -1;
+            ClearModeSelection();
             ResetTwoHandManipulation();
             return;
         }
 
-        currentMode = depth >= browsingLine ? FlowMode.Browsing : FlowMode.Overview;
-
-        if (currentMode == FlowMode.Browsing && IsScreenTouched())
+        bool isInBrowsingZone = depth >= browsingLine;
+        if (!isInBrowsingZone)
         {
-            int newSelectedIndex = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(position) * (ObjectCount - 1)), 0, ObjectCount - 1);
-            if (newSelectedIndex != selectedIndex)
+            if (currentMode != FlowMode.Overview && selectedIndex >= 0)
             {
-                Debug.Log($"[ObjectFlowManager] Selected FlowCube_{newSelectedIndex + 1} in Browsing mode. position={position:F3}, depth={depth:F3}");
+                Debug.Log($"[ObjectFlowManager] Detail selection cleared after leaving Browsing mode. position={position:F3}, depth={depth:F3}");
             }
 
-            selectedIndex = newSelectedIndex;
-        }
-        else if (currentMode == FlowMode.Overview)
-        {
-            selectedIndex = -1;
+            currentMode = FlowMode.Overview;
+            ClearModeSelection();
             ResetTwoHandManipulation();
+            return;
         }
+
+        candidateIndex = GetObjectIndexAtPosition();
+
+        bool wasTouchingBefore = wasWristTouching;
+        bool isTouching = IsScreenTouched();
+        bool touchStarted = isTouching && !wasTouchingBefore;
+
+        if (currentMode == FlowMode.TouchConfirmed)
+        {
+            if (Time.time >= touchConfirmationEndTime)
+            {
+                currentMode = FlowMode.Detail;
+                detailEntryDepth = depth;
+                Debug.Log($"[ObjectFlowManager] Detail mode entered for FlowCube_{selectedIndex + 1}.");
+            }
+
+            return;
+        }
+
+        if (currentMode == FlowMode.Detail)
+        {
+            float returnDepth = Mathf.Max(browsingLine, detailEntryDepth - Mathf.Max(0f, detailReturnDepthDelta));
+            if (!isTouching && depth <= returnDepth)
+            {
+                Debug.Log($"[ObjectFlowManager] Returned to Browsing mode from Detail. position={position:F3}, depth={depth:F3}");
+                currentMode = FlowMode.Browsing;
+                selectedIndex = -1;
+                ResetTwoHandManipulation();
+            }
+
+            return;
+        }
+
+        currentMode = FlowMode.Browsing;
+        selectedIndex = -1;
+
+        if (touchStarted)
+        {
+            selectedIndex = candidateIndex;
+            currentMode = FlowMode.TouchConfirmed;
+            touchConfirmationEndTime = Time.time + touchConfirmationDuration;
+            ResetTwoHandManipulation();
+            Debug.Log($"[ObjectFlowManager] Touch confirmed FlowCube_{selectedIndex + 1}. position={position:F3}, depth={depth:F3}");
+        }
+    }
+
+    private int GetObjectIndexAtPosition()
+    {
+        return Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(position) * (ObjectCount - 1)), 0, ObjectCount - 1);
+    }
+
+    private bool IsSelectionActive()
+    {
+        return selectedIndex >= 0 && (currentMode == FlowMode.TouchConfirmed || currentMode == FlowMode.Detail);
+    }
+
+    private void ClearModeSelection()
+    {
+        candidateIndex = -1;
+        selectedIndex = -1;
+        touchConfirmationEndTime = 0f;
+        detailEntryDepth = 0f;
     }
 
     private bool IsScreenTouched()
@@ -502,7 +638,7 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void UpdateTwoHandManipulation()
     {
-        if (!useTwoHandManipulation || currentMode != FlowMode.Browsing || selectedIndex < 0)
+        if (!useTwoHandManipulation || currentMode != FlowMode.Detail || selectedIndex < 0)
         {
             ResetTwoHandManipulation();
             return;
@@ -627,13 +763,31 @@ public class ObjectFlowManager : MonoBehaviour
             float scale = Mathf.Lerp(CenterScale, SideScale, sideAmount);
             float y = 0f;
 
-            bool isSelected = currentMode == FlowMode.Browsing && i == selectedIndex;
-            if (currentMode == FlowMode.Browsing && absOffset < 0.5f)
+            bool isSelected = IsSelectionActive() && i == selectedIndex;
+            bool isCandidate = currentMode == FlowMode.Browsing && selectedIndex < 0 && i == candidateIndex;
+            bool isDetailBackground = currentMode == FlowMode.Detail && selectedIndex >= 0 && i != selectedIndex;
+            if (currentMode == FlowMode.Detail && selectedIndex >= 0)
+            {
+                int detailOffset = i - selectedIndex;
+                x = detailOffset * detailSideSpacing;
+                z = isSelected ? -0.15f : detailBackgroundZ;
+                scale = isSelected ? detailScale : detailBackgroundScale;
+                yRotation = 0f;
+                sideAmount = isSelected ? 0f : 1f;
+            }
+            else if (currentMode == FlowMode.Browsing && absOffset < 0.5f)
             {
                 scale = BrowsingCenterScale;
                 Vector2 detailRotation = GetBodyDetailRotation();
                 xRotation = detailRotation.y;
                 yRotation += detailRotation.x;
+            }
+
+            if (isCandidate)
+            {
+                float pulse = 1f + Mathf.Sin(Time.time * selectionPulseSpeed) * (selectionPulseAmount * 0.45f);
+                scale *= candidateScaleBoost * pulse;
+                y += candidateLift;
             }
 
             if (isSelected)
@@ -643,14 +797,14 @@ public class ObjectFlowManager : MonoBehaviour
                 yRotation += selectedYawOffset;
                 zRotation += selectedRollOffset;
                 scale *= selectedScaleMultiplier;
-                scale *= pulse;
+                scale *= currentMode == FlowMode.TouchConfirmed ? touchConfirmedScaleBoost * pulse : pulse;
                 y += selectionLift;
             }
 
             flowObject.transform.localPosition = new Vector3(x, y, z);
             flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, zRotation);
             flowObject.transform.localScale = Vector3.one * scale;
-            UpdateSelectionVisual(i, isSelected);
+            UpdateSelectionVisual(i, isSelected, isCandidate, isDetailBackground);
         }
     }
 
@@ -663,14 +817,28 @@ public class ObjectFlowManager : MonoBehaviour
         return new Vector2(yaw, pitch);
     }
 
-    private void UpdateSelectionVisual(int index, bool isSelected)
+    private void UpdateSelectionVisual(int index, bool isSelected, bool isCandidate, bool isDetailBackground)
     {
         Renderer flowRenderer = flowObjects[index].GetComponent<Renderer>();
         if (flowRenderer == null || generatedMaterials == null)
             return;
 
         Material material = generatedMaterials[index % generatedMaterials.Length];
-        Color color = isSelected ? Color.Lerp(baseColors[index % baseColors.Length], selectionColor, 0.75f) : baseColors[index % baseColors.Length];
+        Color baseColor = baseColors[index % baseColors.Length];
+        Color color = baseColor;
+        if (isDetailBackground)
+        {
+            color = Color.Lerp(baseColor, Color.black, detailBackgroundDim);
+        }
+        else if (isSelected)
+        {
+            color = Color.Lerp(baseColor, selectionColor, 0.75f);
+        }
+        else if (isCandidate)
+        {
+            color = Color.Lerp(baseColor, candidateColor, 0.55f);
+        }
+
         material.color = color;
         if (material.HasProperty("_BaseColor"))
         {
@@ -684,10 +852,161 @@ public class ObjectFlowManager : MonoBehaviour
                 material.EnableKeyword("_EMISSION");
                 material.SetColor("_EmissionColor", selectionColor * 1.2f);
             }
+            else if (isCandidate)
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", candidateColor * 0.55f);
+            }
             else
             {
                 material.SetColor("_EmissionColor", Color.black);
             }
+        }
+    }
+
+    private void EnsureModeLabels()
+    {
+        if (!showModeLabels)
+        {
+            SetLabelActive(modeBannerLabel, false);
+            SetLabelActive(modeHintLabel, false);
+            return;
+        }
+
+        if (modeBannerLabel == null)
+        {
+            modeBannerLabel = CreateModeLabel("ModeBanner", modeBannerLocalPosition, modeBannerCharacterSize);
+        }
+
+        if (modeHintLabel == null)
+        {
+            modeHintLabel = CreateModeLabel("ModeHint", modeHintLocalPosition, modeHintCharacterSize);
+        }
+    }
+
+    private TextMesh CreateModeLabel(string labelName, Vector3 localPosition, float characterSize)
+    {
+        GameObject labelObject = new GameObject(labelName);
+        labelObject.transform.SetParent(transform, false);
+        labelObject.transform.localPosition = localPosition;
+        labelObject.transform.localRotation = Quaternion.identity;
+
+        TextMesh label = labelObject.AddComponent<TextMesh>();
+        label.anchor = TextAnchor.MiddleCenter;
+        label.alignment = TextAlignment.Center;
+        label.fontSize = 64;
+        label.characterSize = characterSize;
+        label.color = Color.white;
+        return label;
+    }
+
+    private void UpdateModeLabels()
+    {
+        if (!showModeLabels || modeBannerLabel == null || modeHintLabel == null)
+            return;
+
+        modeBannerLabel.transform.localPosition = modeBannerLocalPosition;
+        modeHintLabel.transform.localPosition = modeHintLocalPosition;
+
+        switch (currentMode)
+        {
+            case FlowMode.Browsing:
+                SetLabel(modeBannerLabel, "Browse: touch to select", candidateColor);
+                SetLabel(modeHintLabel, candidateIndex >= 0 ? $"Candidate: Cube {candidateIndex + 1}" : string.Empty, candidateColor);
+                break;
+            case FlowMode.TouchConfirmed:
+                SetLabel(modeBannerLabel, "Touch detected", selectionColor);
+                SetLabel(modeHintLabel, selectedIndex >= 0 ? $"Selected: Cube {selectedIndex + 1}" : string.Empty, selectionColor);
+                break;
+            case FlowMode.Detail:
+                SetLabel(modeBannerLabel, selectedIndex >= 0 ? $"Detail: Cube {selectedIndex + 1}" : "Detail", selectionColor);
+                SetLabel(modeHintLabel, "Step back to browse", candidateColor);
+                break;
+            default:
+                SetLabel(modeBannerLabel, "Overview", Color.white);
+                SetLabel(modeHintLabel, "Move closer", Color.white);
+                break;
+        }
+
+        UpdateModeLabelTransform(modeBannerLabel, modeBannerLocalPosition, modeBannerViewportPosition, modeBannerCharacterSize);
+        UpdateModeLabelTransform(modeHintLabel, modeHintLocalPosition, modeHintViewportPosition, modeHintCharacterSize);
+    }
+
+    private void SetLabel(TextMesh label, string text, Color color)
+    {
+        if (label == null)
+            return;
+
+        label.gameObject.SetActive(!string.IsNullOrEmpty(text));
+        label.text = text;
+        label.color = color;
+    }
+
+    private void UpdateModeLabelTransform(TextMesh label, Vector3 fallbackLocalPosition, Vector2 viewportPosition, float baseCharacterSize)
+    {
+        if (label == null || !label.gameObject.activeSelf)
+            return;
+
+        if (!anchorModeLabelsToCamera || !TryGetModeLabelCamera(out Camera labelCamera))
+        {
+            label.transform.localPosition = fallbackLocalPosition;
+            label.transform.localRotation = Quaternion.identity;
+            label.characterSize = baseCharacterSize;
+            return;
+        }
+
+        Vector2 clampedViewportPosition = new Vector2(Mathf.Clamp(viewportPosition.x, 0.05f, 0.95f), Mathf.Clamp(viewportPosition.y, 0.05f, 0.95f));
+        float labelDistance = Mathf.Max(0.1f, modeLabelCameraDistance);
+        label.transform.position = labelCamera.ViewportToWorldPoint(new Vector3(clampedViewportPosition.x, clampedViewportPosition.y, labelDistance));
+        label.transform.rotation = labelCamera.transform.rotation;
+        FitModeLabelToCamera(label, labelCamera, labelDistance, baseCharacterSize);
+    }
+
+    private bool TryGetModeLabelCamera(out Camera labelCamera)
+    {
+        labelCamera = modeLabelCamera != null ? modeLabelCamera : Camera.main;
+        if (labelCamera == null)
+        {
+            labelCamera = FindObjectOfType<Camera>();
+        }
+
+        return labelCamera != null;
+    }
+
+    private void FitModeLabelToCamera(TextMesh label, Camera labelCamera, float labelDistance, float baseCharacterSize)
+    {
+        label.characterSize = baseCharacterSize;
+
+        Renderer labelRenderer = label.GetComponent<Renderer>();
+        if (labelRenderer == null)
+            return;
+
+        float cameraWorldWidth = GetCameraWorldWidth(labelCamera, labelDistance);
+        float allowedWorldWidth = cameraWorldWidth * Mathf.Clamp(modeLabelMaxViewportWidth, 0.1f, 0.95f);
+        float labelWorldWidth = labelRenderer.bounds.size.x;
+        if (allowedWorldWidth <= 0f || labelWorldWidth <= 0f || labelWorldWidth <= allowedWorldWidth)
+            return;
+
+        float fittedCharacterSize = baseCharacterSize * allowedWorldWidth / labelWorldWidth;
+        label.characterSize = Mathf.Max(modeLabelMinCharacterSize, fittedCharacterSize);
+    }
+
+    private float GetCameraWorldWidth(Camera labelCamera, float labelDistance)
+    {
+        if (labelCamera.orthographic)
+        {
+            return labelCamera.orthographicSize * 2f * labelCamera.aspect;
+        }
+
+        float height = 2f * labelDistance * Mathf.Tan(labelCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        return height * labelCamera.aspect;
+    }
+
+    private void SetLabelActive(TextMesh label, bool isActive)
+    {
+        if (label != null)
+        {
+            label.gameObject.SetActive(isActive);
         }
     }
 
