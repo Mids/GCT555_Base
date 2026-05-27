@@ -17,13 +17,11 @@ public class ObjectFlowManager : MonoBehaviour
     private const int RightHipIndex = 24;
     private const float MinSpacing = 0.45f;
     private const float MaxSpacing = 1.05f;
-    private const float MinSideDepth = 0.08f;
-    private const float MaxSideDepth = 0.55f;
-    private const float MaxSideAngle = 62f;
     private const float CenterScale = 0.75f;
     private const float SideScale = 0.52f;
     private const float BrowsingCenterScale = 1.05f;
-    private const float FlowCurve = 0.82f;
+    private static readonly int LeonardMoveSpeedHash = Animator.StringToHash("MoveSpeed");
+    private static readonly int LeonardIsPointingHash = Animator.StringToHash("IsPointing");
 
     [Header("Flow Controls")]
     [Range(0f, 1f)]
@@ -43,6 +41,10 @@ public class ObjectFlowManager : MonoBehaviour
 
     [Header("Leonard Avatar")]
     public GameObject leonardAvatarPrefab;
+    public RuntimeAnimatorController leonardAnimatorController;
+    public float leonardAnimatorSpeed = 1f;
+    public float leonardWalkSpeedScale = 1f;
+    public float leonardMoveSpeedDampTime = 0.12f;
     public bool spawnLeonardAvatar = true;
     public Vector2 leonardLocalXRange = new Vector2(-3f, 3f);
     public Vector2 leonardLocalZRange = new Vector2(-1.5f, 2f);
@@ -99,6 +101,11 @@ public class ObjectFlowManager : MonoBehaviour
     private bool wasWristTouching;
     private float nextWristSampleLogTime;
     private GameObject leonardAvatarInstance;
+    private Animator leonardAnimator;
+    private bool hasLeonardMoveSpeedParameter;
+    private bool hasLeonardPointingParameter;
+    private bool hasPreviousLeonardLocalPosition;
+    private Vector3 previousLeonardLocalPosition;
     private bool hasTwoHandBaseline;
     private int twoHandManipulationIndex = -1;
     private float baselineWristDistance;
@@ -125,6 +132,7 @@ public class ObjectFlowManager : MonoBehaviour
         ApplyPoseInput();
         UpdateLeonardAvatar();
         UpdateTrackingState();
+        UpdateLeonardAnimation();
         UpdateTwoHandManipulation();
         UpdateLayout();
         UpdateDebugLines();
@@ -220,12 +228,90 @@ public class ObjectFlowManager : MonoBehaviour
             leonardAvatarInstance.name = "LeonardAvatar";
             leonardAvatarInstance.transform.localPosition = targetLocalPosition;
             leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
+            ConfigureLeonardAnimator();
         }
 
         float followT = 1f - Mathf.Exp(-leonardPositionFollowSpeed * Time.deltaTime);
 
         leonardAvatarInstance.transform.localPosition = Vector3.Lerp(leonardAvatarInstance.transform.localPosition, targetLocalPosition, followT);
         leonardAvatarInstance.transform.localRotation = Quaternion.Euler(leonardLocalEulerAngles);
+    }
+
+    private void ConfigureLeonardAnimator()
+    {
+        leonardAnimator = null;
+        hasLeonardMoveSpeedParameter = false;
+        hasLeonardPointingParameter = false;
+        hasPreviousLeonardLocalPosition = false;
+
+        if (leonardAvatarInstance == null)
+            return;
+
+        leonardAnimator = leonardAvatarInstance.GetComponent<Animator>();
+        if (leonardAnimator == null)
+        {
+            leonardAnimator = leonardAvatarInstance.GetComponentInChildren<Animator>();
+        }
+
+        if (leonardAnimator == null)
+            return;
+
+        if (leonardAnimatorController != null)
+        {
+            leonardAnimator.runtimeAnimatorController = leonardAnimatorController;
+        }
+
+        leonardAnimator.applyRootMotion = false;
+        leonardAnimator.speed = leonardAnimatorSpeed;
+        leonardAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        CacheLeonardAnimatorParameters();
+    }
+
+    private void CacheLeonardAnimatorParameters()
+    {
+        if (leonardAnimator == null)
+            return;
+
+        AnimatorControllerParameter[] parameters = leonardAnimator.parameters;
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            if (parameters[i].type == AnimatorControllerParameterType.Float && parameters[i].nameHash == LeonardMoveSpeedHash)
+            {
+                hasLeonardMoveSpeedParameter = true;
+            }
+            else if (parameters[i].type == AnimatorControllerParameterType.Bool && parameters[i].nameHash == LeonardIsPointingHash)
+            {
+                hasLeonardPointingParameter = true;
+            }
+        }
+    }
+
+    private void UpdateLeonardAnimation()
+    {
+        if (leonardAvatarInstance == null || leonardAnimator == null)
+            return;
+
+        Vector3 currentLocalPosition = leonardAvatarInstance.transform.localPosition;
+        float moveSpeed = 0f;
+        if (hasPreviousLeonardLocalPosition && Time.deltaTime > 0f)
+        {
+            moveSpeed = (currentLocalPosition - previousLeonardLocalPosition).magnitude / Time.deltaTime;
+        }
+
+        previousLeonardLocalPosition = currentLocalPosition;
+        hasPreviousLeonardLocalPosition = true;
+
+        if (hasLeonardMoveSpeedParameter)
+        {
+            float normalizedMoveSpeed = Mathf.Clamp01(moveSpeed * leonardWalkSpeedScale);
+            leonardAnimator.SetFloat(LeonardMoveSpeedHash, normalizedMoveSpeed, leonardMoveSpeedDampTime, Time.deltaTime);
+        }
+
+        if (hasLeonardPointingParameter)
+        {
+            bool shouldPoint = currentMode == FlowMode.Browsing && selectedIndex >= 0;
+            leonardAnimator.SetBool(LeonardIsPointingHash, shouldPoint);
+        }
     }
 
     private Vector3 GetLeonardTargetLocalPosition()
@@ -523,7 +609,6 @@ public class ObjectFlowManager : MonoBehaviour
         float clampedDepth = Mathf.Clamp01(depth);
         float focusedIndex = Mathf.Clamp01(position) * (ObjectCount - 1);
         float spacing = Mathf.Lerp(MinSpacing, MaxSpacing, clampedDepth) * gapMultiplier;
-        float sideDepth = Mathf.Lerp(MinSideDepth, MaxSideDepth, clampedDepth) * gapMultiplier;
 
         for (int i = 0; i < ObjectCount; i++)
         {
@@ -534,10 +619,10 @@ public class ObjectFlowManager : MonoBehaviour
             float offset = i - focusedIndex;
             float absOffset = Mathf.Abs(offset);
             float sideAmount = Mathf.Clamp01(absOffset);
-            float x = Mathf.Sign(offset) * Mathf.Pow(absOffset, FlowCurve) * spacing;
-            float z = Mathf.Min(absOffset, 4f) * sideDepth;
+            float x = offset * spacing;
+            float z = 0f;
             float xRotation = 0f;
-            float yRotation = -Mathf.Sign(offset) * MaxSideAngle * sideAmount;
+            float yRotation = 0f;
             float zRotation = 0f;
             float scale = Mathf.Lerp(CenterScale, SideScale, sideAmount);
             float y = 0f;

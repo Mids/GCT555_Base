@@ -17,7 +17,8 @@ public class StreamClient : MonoBehaviour
     public bool autoConnect = true;
 
     [Header("Visualization")]
-    public GameObject landmarkPrefab; 
+    public GameObject landmarkPrefab;
+    public bool showLandmarkVisuals = true;
     public float landmarkScale = 0.04f;
     // Size of each landmark GameObject in Unity world space.
     // Increase for better visibility, decrease if landmarks look too large.
@@ -405,7 +406,7 @@ public class StreamClient : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             GameObject obj = spawnedLandmarks[i];
-            obj.SetActive(true);
+            obj.SetActive(showLandmarkVisuals);
             obj.transform.localScale = Vector3.one * landmarkScale;
 
             Landmark lmNorm = normalized[i];

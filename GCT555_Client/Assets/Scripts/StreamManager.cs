@@ -30,15 +30,16 @@ public class StreamManager : MonoBehaviour
     public List<StreamClient> activeClients = new List<StreamClient>();
 
     [Header("Visualization Gloabl Settings")]
+    public bool globalShowLandmarkVisuals = true;
     public float globalLandmarkScale = 0.04f;
-    public float globalDepthMultiplier = 20.0f; 
+    public float globalDepthMultiplier = 20.0f;
     public bool globalUsePseudoDepth = false;
     public float globalDepthScale = 2.0f; // Scale for distance estimation
     public Vector3 globalPositionOffset = new Vector3(0, 0, -0.2f);
     public bool globalInvertDepth = false;
 
     [Header("Prefabs")]
-    public GameObject landmarkPrefab; 
+    public GameObject landmarkPrefab;
 
     void Start()
     {
@@ -91,7 +92,8 @@ public class StreamManager : MonoBehaviour
         client.port = port;
         client.clientType = type;
         client.landmarkPrefab = landmarkPrefab;
-        client.visualizationRoot = config.quadTransform; 
+        client.showLandmarkVisuals = globalShowLandmarkVisuals;
+        client.visualizationRoot = config.quadTransform;
         client.quadDisplay = display;
         
         // Apply Global Settings

@@ -170,7 +170,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 0
   m_CookingOptions: 30
@@ -182,7 +182,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 60969003}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -396,7 +396,7 @@ MeshCollider:
   m_LayerOverridePriority: 0
   m_IsTrigger: 0
   m_ProvidesContacts: 0
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 5
   m_Convex: 0
   m_CookingOptions: 30
@@ -408,7 +408,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 282124859}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -858,6 +858,7 @@ MonoBehaviour:
     handWebPort: 5001
     faceWebPort: 5002
   activeClients: []
+  globalShowLandmarkVisuals: 0
   globalLandmarkScale: 0.1
   globalDepthMultiplier: 0.1
   globalUsePseudoDepth: 0
@@ -933,6 +934,10 @@ MonoBehaviour:
   topIsDepthOne: 0
   poseFollowSpeed: 8
   leonardAvatarPrefab: {fileID: 919132149155446097, guid: 1a5dee5e6cfba894d8ab1614784a1f37, type: 3}
+  leonardAnimatorController: {fileID: 9100000, guid: 9d3a1b6e2c4f4d198ef87bb1bb3d5f12, type: 2}
+  leonardAnimatorSpeed: 1
+  leonardWalkSpeedScale: 1
+  leonardMoveSpeedDampTime: 0.12
   spawnLeonardAvatar: 1
   leonardLocalXRange: {x: -3, y: 3}
   leonardLocalZRange: {x: -1.5, y: 2}
