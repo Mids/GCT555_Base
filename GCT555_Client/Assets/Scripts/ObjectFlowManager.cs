@@ -111,11 +111,11 @@ public class ObjectFlowManager : MonoBehaviour
     public Vector3 modeHintLocalPosition = new Vector3(0f, -1.72f, -0.45f);
     public bool anchorModeLabelsToCamera = true;
     public Camera modeLabelCamera;
-    public Vector2 modeBannerViewportPosition = new Vector2(0.5f, 0.88f);
-    public Vector2 modeHintViewportPosition = new Vector2(0.5f, 0.12f);
+    public Vector2 modeBannerViewportPosition = new Vector2(0.06f, 0.92f);
+    public Vector2 modeHintViewportPosition = new Vector2(0.06f, 0.86f);
     public float modeLabelCameraDistance = 6.6f;
     [Range(0.1f, 0.95f)]
-    public float modeLabelMaxViewportWidth = 0.62f;
+    public float modeLabelMaxViewportWidth = 0.5f;
     public float modeBannerCharacterSize = 0.075f;
     public float modeHintCharacterSize = 0.058f;
     public float modeLabelMinCharacterSize = 0.035f;
@@ -860,8 +860,8 @@ public class ObjectFlowManager : MonoBehaviour
         labelObject.transform.localRotation = Quaternion.identity;
 
         TextMesh label = labelObject.AddComponent<TextMesh>();
-        label.anchor = TextAnchor.MiddleCenter;
-        label.alignment = TextAlignment.Center;
+        label.anchor = TextAnchor.MiddleLeft;
+        label.alignment = TextAlignment.Left;
         label.fontSize = 64;
         label.characterSize = characterSize;
         label.color = Color.white;
