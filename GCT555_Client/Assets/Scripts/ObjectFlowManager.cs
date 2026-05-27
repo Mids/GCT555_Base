@@ -120,8 +120,86 @@ public class ObjectFlowManager : MonoBehaviour
     public float modeHintCharacterSize = 0.058f;
     public float modeLabelMinCharacterSize = 0.035f;
 
+    [Header("Detail Modal")]
+    public bool showDetailModal = true;
+    public Vector2 detailModalViewportPosition = new Vector2(0.78f, 0.52f);
+    public Vector2 detailModalViewportSize = new Vector2(0.28f, 0.58f);
+    public float detailModalCameraDistance = 6.6f;
+    public Color detailModalBackgroundColor = new Color(0f, 0f, 0f, 0.58f);
+    public Color detailModalBorderColor = new Color(1f, 0.65f, 0.15f, 0.55f);
+    public Color detailModalTextColor = Color.white;
+    public Color detailModalMutedTextColor = new Color(0.82f, 0.82f, 0.82f, 1f);
+    public Color detailModalAccentColor = new Color(1f, 0.65f, 0.15f, 1f);
+    public float detailModalTitleCharacterSize = 0.07f;
+    public float detailModalBodyCharacterSize = 0.046f;
+    public float detailModalFooterCharacterSize = 0.048f;
+
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
     private readonly Color[] baseColors = { Color.red, Color.green, Color.blue };
+    private static readonly string[] DetailTitles =
+    {
+        "Lunar Compass",
+        "Glass Archive",
+        "Ceramic Signal",
+        "Bronze Dial",
+        "Field Relic",
+        "Obsidian Lens",
+        "Ivory Token",
+        "Slate Vessel",
+        "Amber Figure"
+    };
+
+    private static readonly string[] DetailOrigins =
+    {
+        "Aegean coast, 1240 BCE",
+        "North observatory, 540 CE",
+        "River delta workshop, 920 BCE",
+        "Mountain foundry, 310 BCE",
+        "Desert survey camp, 1884",
+        "Island shrine, 760 CE",
+        "Harbor market, 150 BCE",
+        "Highland kiln, 610 CE",
+        "Forest archive, 1320"
+    };
+
+    private static readonly string[] DetailMaterials =
+    {
+        "Brass, shell, mineral ink",
+        "Smoked glass and cedar",
+        "Fired clay, ash glaze",
+        "Bronze and black enamel",
+        "Limestone and cotton cord",
+        "Obsidian, copper, resin",
+        "Ivory and lapis pigment",
+        "Slate, tin, charcoal",
+        "Amber and carved walnut"
+    };
+
+    private static readonly string[] DetailPeriods =
+    {
+        "Late Maritime Kingdom",
+        "Early Astronomer Guild",
+        "Delta Settlement Period",
+        "Hellenistic Trade Route",
+        "Industrial Expedition Era",
+        "Middle Temple Period",
+        "Coastal Exchange Age",
+        "Northern Kiln Dynasty",
+        "Royal Scriptorium Phase"
+    };
+
+    private static readonly string[] DetailDescriptions =
+    {
+        "A portable navigation object used to align night travel with seasonal star paths.",
+        "A preserved record fragment believed to store ritual measurements and tax marks.",
+        "A hand-sized signal vessel whose glaze pattern marked ownership and destination.",
+        "A calibrated dial used by merchants to compare weights across regional systems.",
+        "A field marker carried by survey teams to register boundary and route decisions.",
+        "A polished lens mounted in resin for ceremonial inspection of small inscriptions.",
+        "A counting token exchanged during harbor audits and sealed cargo transfers.",
+        "A storage vessel associated with pigment preparation and workshop apprentices.",
+        "A carved figure used as a teaching object in courtly archive demonstrations."
+    };
     private Material[] generatedMaterials;
     private StreamClient poseClient;
     private FlowMode currentMode = FlowMode.Overview;
@@ -133,6 +211,15 @@ public class ObjectFlowManager : MonoBehaviour
     private float detailEntryDepth;
     private TextMesh modeBannerLabel;
     private TextMesh modeHintLabel;
+    private GameObject detailModalRoot;
+    private GameObject detailModalPanel;
+    private GameObject[] detailModalBorders;
+    private Material detailModalPanelMaterial;
+    private Material detailModalBorderMaterial;
+    private TextMesh detailModalTitleLabel;
+    private TextMesh detailModalSubtitleLabel;
+    private TextMesh detailModalBodyLabel;
+    private TextMesh detailModalFooterLabel;
     private GameObject leonardAvatarInstance;
     private Animator leonardAnimator;
     private bool hasLeonardMoveSpeedParameter;
@@ -157,14 +244,17 @@ public class ObjectFlowManager : MonoBehaviour
     {
         EnsureObjects();
         EnsureModeLabels();
+        EnsureDetailModal();
         UpdateLayout();
         UpdateModeLabels();
+        UpdateDetailModal();
     }
 
     private void Update()
     {
         EnsureObjects();
         EnsureModeLabels();
+        EnsureDetailModal();
         ApplyPoseInput();
         UpdateLeonardAvatar();
         UpdateTrackingState();
@@ -172,6 +262,7 @@ public class ObjectFlowManager : MonoBehaviour
         UpdateTwoHandManipulation();
         UpdateLayout();
         UpdateModeLabels();
+        UpdateDetailModal();
         UpdateDebugLines();
     }
 
@@ -209,6 +300,21 @@ public class ObjectFlowManager : MonoBehaviour
         if (modeHintLabel != null)
         {
             Destroy(modeHintLabel.gameObject);
+        }
+
+        if (detailModalRoot != null)
+        {
+            Destroy(detailModalRoot);
+        }
+
+        if (detailModalPanelMaterial != null)
+        {
+            Destroy(detailModalPanelMaterial);
+        }
+
+        if (detailModalBorderMaterial != null)
+        {
+            Destroy(detailModalBorderMaterial);
         }
     }
 
@@ -961,13 +1067,265 @@ public class ObjectFlowManager : MonoBehaviour
 
     private float GetCameraWorldWidth(Camera labelCamera, float labelDistance)
     {
+        return GetCameraWorldSize(labelCamera, labelDistance).x;
+    }
+
+    private Vector2 GetCameraWorldSize(Camera labelCamera, float labelDistance)
+    {
         if (labelCamera.orthographic)
         {
-            return labelCamera.orthographicSize * 2f * labelCamera.aspect;
+            float orthographicHeight = labelCamera.orthographicSize * 2f;
+            return new Vector2(orthographicHeight * labelCamera.aspect, orthographicHeight);
         }
 
-        float height = 2f * labelDistance * Mathf.Tan(labelCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
-        return height * labelCamera.aspect;
+        float perspectiveHeight = 2f * labelDistance * Mathf.Tan(labelCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        return new Vector2(perspectiveHeight * labelCamera.aspect, perspectiveHeight);
+    }
+
+    private void EnsureDetailModal()
+    {
+        if (!showDetailModal)
+        {
+            SetDetailModalActive(false);
+            return;
+        }
+
+        if (detailModalRoot != null)
+            return;
+
+        detailModalRoot = new GameObject("DetailModal");
+        detailModalRoot.transform.SetParent(transform, false);
+
+        detailModalPanelMaterial = CreateDetailModalMaterial("DetailModalPanelMaterial", detailModalBackgroundColor);
+        detailModalBorderMaterial = CreateDetailModalMaterial("DetailModalBorderMaterial", detailModalBorderColor);
+        detailModalPanel = CreateDetailModalQuad("DetailModalPanel", detailModalPanelMaterial);
+        detailModalBorders = new[]
+        {
+            CreateDetailModalQuad("DetailModalBorderTop", detailModalBorderMaterial),
+            CreateDetailModalQuad("DetailModalBorderBottom", detailModalBorderMaterial),
+            CreateDetailModalQuad("DetailModalBorderLeft", detailModalBorderMaterial),
+            CreateDetailModalQuad("DetailModalBorderRight", detailModalBorderMaterial)
+        };
+
+        detailModalTitleLabel = CreateDetailModalLabel("DetailModalTitle", detailModalTitleCharacterSize, detailModalTextColor);
+        detailModalSubtitleLabel = CreateDetailModalLabel("DetailModalSubtitle", detailModalBodyCharacterSize, detailModalMutedTextColor);
+        detailModalBodyLabel = CreateDetailModalLabel("DetailModalBody", detailModalBodyCharacterSize, detailModalTextColor);
+        detailModalFooterLabel = CreateDetailModalLabel("DetailModalFooter", detailModalFooterCharacterSize, detailModalAccentColor);
+        SetDetailModalActive(false);
+    }
+
+    private Material CreateDetailModalMaterial(string materialName, Color color)
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Sprites/Default");
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Unlit/Transparent");
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        Material material = new Material(shader);
+        material.name = materialName;
+        material.color = color;
+        if (material.HasProperty("_BaseColor"))
+        {
+            material.SetColor("_BaseColor", color);
+        }
+
+        if (material.HasProperty("_Color"))
+        {
+            material.SetColor("_Color", color);
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+        }
+
+        if (material.HasProperty("_SrcBlend"))
+        {
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        }
+
+        if (material.HasProperty("_DstBlend"))
+        {
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        }
+
+        if (material.HasProperty("_ZWrite"))
+        {
+            material.SetInt("_ZWrite", 0);
+        }
+
+        if (material.HasProperty("_Cull"))
+        {
+            material.SetInt("_Cull", 0);
+        }
+
+        material.renderQueue = 3000;
+        return material;
+    }
+
+    private GameObject CreateDetailModalQuad(string objectName, Material material)
+    {
+        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        quad.name = objectName;
+        quad.transform.SetParent(detailModalRoot.transform, false);
+
+        Collider quadCollider = quad.GetComponent<Collider>();
+        if (quadCollider != null)
+        {
+            Destroy(quadCollider);
+        }
+
+        Renderer quadRenderer = quad.GetComponent<Renderer>();
+        if (quadRenderer != null)
+        {
+            quadRenderer.sharedMaterial = material;
+        }
+
+        return quad;
+    }
+
+    private TextMesh CreateDetailModalLabel(string labelName, float characterSize, Color color)
+    {
+        GameObject labelObject = new GameObject(labelName);
+        labelObject.transform.SetParent(detailModalRoot.transform, false);
+
+        TextMesh label = labelObject.AddComponent<TextMesh>();
+        label.anchor = TextAnchor.UpperLeft;
+        label.alignment = TextAlignment.Left;
+        label.fontSize = 64;
+        label.characterSize = characterSize;
+        label.lineSpacing = 0.92f;
+        label.color = color;
+        return label;
+    }
+
+    private void UpdateDetailModal()
+    {
+        if (detailModalRoot == null)
+            return;
+
+        Camera labelCamera = null;
+        bool shouldShow = showDetailModal && currentMode == FlowMode.Detail && selectedIndex >= 0 && TryGetModeLabelCamera(out labelCamera);
+        SetDetailModalActive(shouldShow);
+        if (!shouldShow)
+            return;
+
+        float modalDistance = Mathf.Max(0.1f, detailModalCameraDistance);
+        Vector2 clampedPosition = new Vector2(Mathf.Clamp(detailModalViewportPosition.x, 0.05f, 0.95f), Mathf.Clamp(detailModalViewportPosition.y, 0.05f, 0.95f));
+        Vector2 clampedSize = new Vector2(Mathf.Clamp(detailModalViewportSize.x, 0.1f, 0.8f), Mathf.Clamp(detailModalViewportSize.y, 0.1f, 0.85f));
+        Vector2 cameraWorldSize = GetCameraWorldSize(labelCamera, modalDistance);
+        Vector2 modalWorldSize = new Vector2(cameraWorldSize.x * clampedSize.x, cameraWorldSize.y * clampedSize.y);
+
+        detailModalRoot.transform.position = labelCamera.ViewportToWorldPoint(new Vector3(clampedPosition.x, clampedPosition.y, modalDistance));
+        detailModalRoot.transform.rotation = labelCamera.transform.rotation;
+        UpdateDetailModalPanel(modalWorldSize);
+        UpdateDetailModalText(modalWorldSize);
+    }
+
+    private void UpdateDetailModalPanel(Vector2 modalWorldSize)
+    {
+        if (detailModalPanel == null)
+            return;
+
+        detailModalPanel.transform.localPosition = Vector3.zero;
+        detailModalPanel.transform.localRotation = Quaternion.identity;
+        detailModalPanel.transform.localScale = new Vector3(modalWorldSize.x, modalWorldSize.y, 1f);
+
+        if (detailModalBorders == null || detailModalBorders.Length < 4)
+            return;
+
+        float borderSize = Mathf.Max(0.01f, Mathf.Min(modalWorldSize.x, modalWorldSize.y) * 0.012f);
+        float halfWidth = modalWorldSize.x * 0.5f;
+        float halfHeight = modalWorldSize.y * 0.5f;
+        SetModalBorder(detailModalBorders[0], new Vector3(0f, halfHeight - borderSize * 0.5f, -0.01f), new Vector3(modalWorldSize.x, borderSize, 1f));
+        SetModalBorder(detailModalBorders[1], new Vector3(0f, -halfHeight + borderSize * 0.5f, -0.01f), new Vector3(modalWorldSize.x, borderSize, 1f));
+        SetModalBorder(detailModalBorders[2], new Vector3(-halfWidth + borderSize * 0.5f, 0f, -0.01f), new Vector3(borderSize, modalWorldSize.y, 1f));
+        SetModalBorder(detailModalBorders[3], new Vector3(halfWidth - borderSize * 0.5f, 0f, -0.01f), new Vector3(borderSize, modalWorldSize.y, 1f));
+    }
+
+    private void SetModalBorder(GameObject border, Vector3 localPosition, Vector3 localScale)
+    {
+        if (border == null)
+            return;
+
+        border.transform.localPosition = localPosition;
+        border.transform.localRotation = Quaternion.identity;
+        border.transform.localScale = localScale;
+    }
+
+    private void UpdateDetailModalText(Vector2 modalWorldSize)
+    {
+        int infoIndex = Mathf.Abs(selectedIndex) % DetailTitles.Length;
+        float padding = Mathf.Min(modalWorldSize.x, modalWorldSize.y) * 0.08f;
+        float left = -modalWorldSize.x * 0.5f + padding;
+        float top = modalWorldSize.y * 0.5f - padding;
+        float bottom = -modalWorldSize.y * 0.5f + padding;
+        float labelZ = -0.03f;
+        int descriptionLineLength = Mathf.Clamp(Mathf.FloorToInt((modalWorldSize.x - padding * 2f) / Mathf.Max(0.001f, detailModalBodyCharacterSize * 0.55f)), 18, 38);
+
+        SetLabel(detailModalTitleLabel, DetailTitles[infoIndex], detailModalTextColor);
+        SetLabel(detailModalSubtitleLabel, DetailOrigins[infoIndex], detailModalMutedTextColor);
+        SetLabel(detailModalBodyLabel, BuildDetailModalBody(infoIndex, descriptionLineLength), detailModalTextColor);
+        SetLabel(detailModalFooterLabel, "More Info", detailModalAccentColor);
+
+        detailModalTitleLabel.transform.localPosition = new Vector3(left, top, labelZ);
+        detailModalSubtitleLabel.transform.localPosition = new Vector3(left, top - modalWorldSize.y * 0.11f, labelZ);
+        detailModalBodyLabel.transform.localPosition = new Vector3(left, top - modalWorldSize.y * 0.25f, labelZ);
+        detailModalFooterLabel.transform.localPosition = new Vector3(left, bottom, labelZ);
+    }
+
+    private string BuildDetailModalBody(int infoIndex, int descriptionLineLength)
+    {
+        return "Material\n"
+            + DetailMaterials[infoIndex]
+            + "\n\nPeriod\n"
+            + DetailPeriods[infoIndex]
+            + "\n\nDescription\n"
+            + WrapText(DetailDescriptions[infoIndex], descriptionLineLength);
+    }
+
+    private string WrapText(string text, int maxLineLength)
+    {
+        if (string.IsNullOrEmpty(text) || maxLineLength <= 0)
+            return text;
+
+        string[] words = text.Split(' ');
+        string wrappedText = string.Empty;
+        string currentLine = string.Empty;
+        for (int i = 0; i < words.Length; i++)
+        {
+            string word = words[i];
+            if (currentLine.Length > 0 && currentLine.Length + word.Length + 1 > maxLineLength)
+            {
+                wrappedText += currentLine + "\n";
+                currentLine = word;
+            }
+            else
+            {
+                currentLine = currentLine.Length == 0 ? word : currentLine + " " + word;
+            }
+        }
+
+        return wrappedText + currentLine;
+    }
+
+    private void SetDetailModalActive(bool isActive)
+    {
+        if (detailModalRoot != null && detailModalRoot.activeSelf != isActive)
+        {
+            detailModalRoot.SetActive(isActive);
+        }
     }
 
     private void SetLabelActive(TextMesh label, bool isActive)

@@ -992,6 +992,18 @@ MonoBehaviour:
   modeBannerCharacterSize: 0.075
   modeHintCharacterSize: 0.058
   modeLabelMinCharacterSize: 0.035
+  showDetailModal: 1
+  detailModalViewportPosition: {x: 0.78, y: 0.52}
+  detailModalViewportSize: {x: 0.28, y: 0.58}
+  detailModalCameraDistance: 6.6
+  detailModalBackgroundColor: {r: 0, g: 0, b: 0, a: 0.58}
+  detailModalBorderColor: {r: 1, g: 0.65, b: 0.15, a: 0.55}
+  detailModalTextColor: {r: 1, g: 1, b: 1, a: 1}
+  detailModalMutedTextColor: {r: 0.82, g: 0.82, b: 0.82, a: 1}
+  detailModalAccentColor: {r: 1, g: 0.65, b: 0.15, a: 1}
+  detailModalTitleCharacterSize: 0.07
+  detailModalBodyCharacterSize: 0.046
+  detailModalFooterCharacterSize: 0.048
 --- !u!1 &2132842236
 GameObject:
   m_ObjectHideFlags: 0
