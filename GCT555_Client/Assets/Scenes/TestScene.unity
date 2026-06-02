@@ -146,13 +146,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 60969003}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.125, z: 0}
-  m_LocalScale: {x: 4, y: 2.25, z: 1}
-  m_ConstrainProportionsScale: 0
+  m_LocalRotation: {x: -0, y: -0.9999998, z: -0, w: 0.00066418207}
+  m_LocalPosition: {x: -1.58, y: 2.13, z: 0}
+  m_LocalScale: {x: 0.83136, y: 0.46763998, z: 0.20784}
+  m_ConstrainProportionsScale: 1
   m_Children: []
   m_Father: {fileID: 986738195}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -179.924, z: 0}
 --- !u!64 &60969005
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -944,8 +944,8 @@ MonoBehaviour:
   leonardLocalY: -0.5
   leonardLocalEulerAngles: {x: 0, y: 0, z: 0}
   leonardPositionFollowSpeed: 10
-  browsingLine: 0.5
-  screenTouchLine: 0.92
+  browsingLine: 0.2
+  screenTouchLine: 0.85
   useBrowsingMode: 1
   browsingYawRange: 55
   browsingPitchRange: 35
