@@ -48,6 +48,8 @@ public class ObjectFlowManager : MonoBehaviour
     public float gapMultiplier = 2f;
     public float overviewSpacing = 0.85f;
     public float overviewScale = 0.52f;
+    public float browseSpacing = 1.05f;
+    public float browseScale = 0.62f;
     public float touchSelectionFlowSpeed = 8f;
 
     [Header("Pose Source")]
@@ -242,6 +244,7 @@ public class ObjectFlowManager : MonoBehaviour
     private GameObject leonardAvatarInstance;
     private Animator leonardAnimator;
     private bool hasPoseTracking = true;
+    private bool poseTrackingJustRestored;
     private bool hasLeonardMoveSpeedParameter;
     private bool hasLeonardPointingParameter;
     private bool hasPreviousLeonardLocalPosition;
@@ -372,32 +375,34 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void ApplyPoseInput()
     {
+        poseTrackingJustRestored = false;
+
         if (!driveFromPose)
         {
-            hasPoseTracking = true;
+            SetPoseTracking(true);
             return;
         }
 
         StreamClient client = GetPoseClient();
         if (client == null || client.latestPoseData == null || client.latestPoseData.landmarks == null)
         {
-            hasPoseTracking = false;
+            SetPoseTracking(false);
             return;
         }
 
         if (poseLostTimeout > 0f && client.lastDataTime >= 0f && Time.time - client.lastDataTime > poseLostTimeout)
         {
-            hasPoseTracking = false;
+            SetPoseTracking(false);
             return;
         }
 
         if (!TryGetPoseCenter(client.latestPoseData, out Vector2 poseCenter))
         {
-            hasPoseTracking = false;
+            SetPoseTracking(false);
             return;
         }
 
-        hasPoseTracking = true;
+        SetPoseTracking(true);
 
         float targetPosition = mirrorPoseX ? 1f - poseCenter.x : poseCenter.x;
         float targetDepth = topIsDepthOne ? 1f - poseCenter.y : poseCenter.y;
@@ -405,6 +410,16 @@ public class ObjectFlowManager : MonoBehaviour
 
         position = Mathf.Lerp(position, Mathf.Clamp01(targetPosition), followT);
         depth = Mathf.Lerp(depth, Mathf.Clamp01(targetDepth), followT);
+    }
+
+    private void SetPoseTracking(bool isTracking)
+    {
+        if (!hasPoseTracking && isTracking)
+        {
+            poseTrackingJustRestored = true;
+        }
+
+        hasPoseTracking = isTracking;
     }
 
     private void UpdateLeonardAvatar()
@@ -520,7 +535,7 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (streamManager == null)
         {
-            streamManager = FindObjectOfType<StreamManager>();
+            streamManager = FindFirstObjectByType<StreamManager>();
         }
 
         if (streamManager == null || streamManager.activeClients == null)
@@ -624,6 +639,12 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (navigationMode == NavigationMode.ScreenTouch)
         {
+            if (poseTrackingJustRestored)
+            {
+                EnterTouchBrowseAfterPoseRestore();
+                return;
+            }
+
             UpdateTouchNavigationState();
             return;
         }
@@ -642,6 +663,16 @@ public class ObjectFlowManager : MonoBehaviour
         ClearModeSelection();
         ResetTwoHandManipulation();
         wasWristTouching = false;
+    }
+
+    private void EnterTouchBrowseAfterPoseRestore()
+    {
+        currentMode = FlowMode.Browsing;
+        selectedIndex = -1;
+        candidateIndex = GetObjectIndexAtPosition();
+        ResetTwoHandManipulation();
+        wasWristTouching = TryGetScreenTouch(out _, out _, out _);
+        Debug.Log($"[ObjectFlowManager] Pose tracking restored. Switching to Browsing mode. candidate=FlowCube_{candidateIndex + 1}");
     }
 
     private void UpdateMoveNavigationState()
@@ -1055,7 +1086,7 @@ public class ObjectFlowManager : MonoBehaviour
             float followT = 1f - Mathf.Exp(-Mathf.Max(0.01f, touchSelectionFlowSpeed) * Time.deltaTime);
             touchLayoutFocusedIndex = Mathf.Lerp(touchLayoutFocusedIndex, targetFocusedIndex, followT);
             focusedIndex = touchLayoutFocusedIndex;
-            spacing = overviewSpacing;
+            spacing = browseSpacing;
         }
         else
         {
@@ -1087,6 +1118,12 @@ public class ObjectFlowManager : MonoBehaviour
                 float overviewOffset = i - (ObjectCount - 1) * 0.5f;
                 x = overviewOffset * overviewSpacing;
                 scale = overviewScale;
+                sideAmount = 1f;
+            }
+            else if (useTouchSelectionFlow)
+            {
+                x = offset * browseSpacing;
+                scale = browseScale;
                 sideAmount = 1f;
             }
             else if (currentMode == FlowMode.Detail && selectedIndex >= 0)
@@ -1294,7 +1331,7 @@ public class ObjectFlowManager : MonoBehaviour
         labelCamera = modeLabelCamera != null ? modeLabelCamera : Camera.main;
         if (labelCamera == null)
         {
-            labelCamera = FindObjectOfType<Camera>();
+            labelCamera = FindFirstObjectByType<Camera>();
         }
 
         return labelCamera != null;
