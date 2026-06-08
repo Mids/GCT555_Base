@@ -58,6 +58,7 @@ public class ObjectFlowManager : MonoBehaviour
     [Header("Artifact Prefabs")]
     public GameObject[] finalArtifactPrefabs;
     public float artifactNormalizedSize = CenterScale;
+    public float artifactYawOffsetDegrees = 180f;
 
     [Header("Artifact Stands")]
     public bool showArtifactStands = true;
@@ -1469,7 +1470,8 @@ public class ObjectFlowManager : MonoBehaviour
 
             float artifactY = y + GetArtifactYOnStand(i, scale);
             flowObject.transform.localPosition = new Vector3(x, artifactY, z);
-            flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, zRotation);
+            float artifactYawOffset = flowUsesGeneratedMaterial[i] ? 0f : artifactYawOffsetDegrees;
+            flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation + artifactYawOffset, zRotation);
             Vector3 baseScale = flowBaseScales[i] == Vector3.zero ? Vector3.one : flowBaseScales[i];
             flowObject.transform.localScale = baseScale * scale;
             UpdateArtifactStandLayout(i, x, z);
