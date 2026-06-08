@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 
 public class ObjectFlowManager : MonoBehaviour
 {
@@ -160,21 +161,26 @@ public class ObjectFlowManager : MonoBehaviour
     public float modeBannerCharacterSize = 0.075f;
     public float modeHintCharacterSize = 0.058f;
     public float modeLabelMinCharacterSize = 0.035f;
+    public bool hideModeLabelsInDetail = true;
 
     [Header("Detail Modal")]
     public bool showDetailModal = true;
-    public Vector2 detailModalViewportPosition = new Vector2(0.78f, 0.52f);
-    public Vector2 detailModalViewportSize = new Vector2(0.28f, 0.58f);
+    public Vector2 detailModalViewportPosition = new Vector2(0.79f, 0.52f);
+    public Vector2 detailModalViewportSize = new Vector2(0.3f, 0.72f);
     public float detailModalCameraDistance = 6.6f;
-    public Color detailModalBackgroundColor = new Color(0f, 0f, 0f, 0.58f);
-    public Color detailModalBorderColor = new Color(1f, 0.65f, 0.15f, 0.55f);
-    public Color detailModalTextColor = Color.white;
-    public Color detailModalMutedTextColor = new Color(0.82f, 0.82f, 0.82f, 1f);
-    public Color detailModalAccentColor = new Color(1f, 0.65f, 0.15f, 1f);
-    public float detailModalTitleCharacterSize = 0.07f;
-    public float detailModalBodyCharacterSize = 0.046f;
-    public float detailModalFooterCharacterSize = 0.048f;
-    public int detailModalMaxDescriptionCharacters = 260;
+    public Color detailModalBackgroundColor = new Color(0.015f, 0.04f, 0.075f, 0.86f);
+    public Color detailModalBorderColor = new Color(0.64f, 0.82f, 1f, 0.22f);
+    public Color detailModalTextColor = new Color(0.86f, 0.9f, 0.95f, 1f);
+    public Color detailModalMutedTextColor = new Color(0.68f, 0.76f, 0.84f, 1f);
+    public Color detailModalAccentColor = new Color(0.74f, 0.86f, 1f, 1f);
+    public float detailModalTitleCharacterSize = 0.052f;
+    public float detailModalBodyCharacterSize = 0.04f;
+    public float detailModalFooterCharacterSize = 0.044f;
+    public float detailModalBodyLineSpacing = 1.12f;
+    [Range(0.04f, 0.2f)]
+    public float detailModalPaddingRatio = 0.11f;
+    public int detailModalMaxDescriptionCharacters = 220;
+    public bool detailModalMinimalMuseumLayout = true;
 
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
     private readonly Renderer[][] flowRenderers = new Renderer[ObjectCount][];
@@ -266,14 +272,15 @@ public class ObjectFlowManager : MonoBehaviour
     private TextMesh modeBannerLabel;
     private TextMesh modeHintLabel;
     private GameObject detailModalRoot;
-    private GameObject detailModalPanel;
-    private GameObject[] detailModalBorders;
-    private Material detailModalPanelMaterial;
-    private Material detailModalBorderMaterial;
-    private TextMesh detailModalTitleLabel;
-    private TextMesh detailModalSubtitleLabel;
-    private TextMesh detailModalBodyLabel;
-    private TextMesh detailModalFooterLabel;
+    private RectTransform detailModalRect;
+    private RectTransform detailModalAccentRect;
+    private Image detailModalPanelImage;
+    private Image detailModalAccentImage;
+    private Text detailModalTitleLabel;
+    private Text detailModalSubtitleLabel;
+    private Text detailModalBodyLabel;
+    private Text detailModalFooterLabel;
+    private Font detailModalFont;
     private GameObject leonardAvatarInstance;
     private Animator leonardAnimator;
     private bool hasPoseTracking = true;
@@ -389,15 +396,6 @@ public class ObjectFlowManager : MonoBehaviour
             Destroy(detailModalRoot);
         }
 
-        if (detailModalPanelMaterial != null)
-        {
-            Destroy(detailModalPanelMaterial);
-        }
-
-        if (detailModalBorderMaterial != null)
-        {
-            Destroy(detailModalBorderMaterial);
-        }
     }
 
     private void EnsureObjects()
@@ -1697,6 +1695,13 @@ public class ObjectFlowManager : MonoBehaviour
                 SetLabel(modeHintLabel, selectedIndex >= 0 ? $"Selected: Cube {selectedIndex + 1}" : string.Empty, selectionColor);
                 break;
             case FlowMode.Detail:
+                if (hideModeLabelsInDetail)
+                {
+                    SetLabelActive(modeBannerLabel, false);
+                    SetLabelActive(modeHintLabel, false);
+                    return;
+                }
+
                 SetLabel(modeBannerLabel, selectedIndex >= 0 ? $"Detail: Cube {selectedIndex + 1}" : "Detail", selectionColor);
                 SetLabel(modeHintLabel, navigationMode == NavigationMode.ScreenTouch ? "Touch to browse" : "Step back to browse", candidateColor);
                 break;
@@ -1797,121 +1802,79 @@ public class ObjectFlowManager : MonoBehaviour
         if (detailModalRoot != null)
             return;
 
-        detailModalRoot = new GameObject("DetailModal");
+        detailModalRoot = new GameObject("DetailModalCanvas");
         detailModalRoot.transform.SetParent(transform, false);
 
-        detailModalPanelMaterial = CreateDetailModalMaterial("DetailModalPanelMaterial", detailModalBackgroundColor);
-        detailModalBorderMaterial = CreateDetailModalMaterial("DetailModalBorderMaterial", detailModalBorderColor);
-        detailModalPanel = CreateDetailModalQuad("DetailModalPanel", detailModalPanelMaterial);
-        detailModalBorders = new[]
-        {
-            CreateDetailModalQuad("DetailModalBorderTop", detailModalBorderMaterial),
-            CreateDetailModalQuad("DetailModalBorderBottom", detailModalBorderMaterial),
-            CreateDetailModalQuad("DetailModalBorderLeft", detailModalBorderMaterial),
-            CreateDetailModalQuad("DetailModalBorderRight", detailModalBorderMaterial)
-        };
+        Canvas canvas = detailModalRoot.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 100;
 
-        detailModalTitleLabel = CreateDetailModalLabel("DetailModalTitle", detailModalTitleCharacterSize, detailModalTextColor);
-        detailModalSubtitleLabel = CreateDetailModalLabel("DetailModalSubtitle", detailModalBodyCharacterSize, detailModalMutedTextColor);
-        detailModalBodyLabel = CreateDetailModalLabel("DetailModalBody", detailModalBodyCharacterSize, detailModalTextColor);
-        detailModalFooterLabel = CreateDetailModalLabel("DetailModalFooter", detailModalFooterCharacterSize, detailModalAccentColor);
+        CanvasScaler scaler = detailModalRoot.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1024f, 768f);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        detailModalRoot.AddComponent<GraphicRaycaster>();
+
+        detailModalRect = CreateUiRect("DetailModalPanel", detailModalRoot.transform);
+        detailModalPanelImage = detailModalRect.gameObject.AddComponent<Image>();
+        detailModalPanelImage.raycastTarget = false;
+
+        detailModalAccentRect = CreateUiRect("DetailModalAccent", detailModalRect);
+        detailModalAccentImage = detailModalAccentRect.gameObject.AddComponent<Image>();
+        detailModalAccentImage.raycastTarget = false;
+
+        detailModalTitleLabel = CreateDetailModalUiLabel("DetailModalTitle", detailModalRect, detailModalTitleCharacterSize, FontStyle.Bold, detailModalTextColor);
+        detailModalSubtitleLabel = CreateDetailModalUiLabel("DetailModalSubtitle", detailModalRect, detailModalBodyCharacterSize, FontStyle.Normal, detailModalMutedTextColor);
+        detailModalBodyLabel = CreateDetailModalUiLabel("DetailModalBody", detailModalRect, detailModalBodyCharacterSize, FontStyle.Normal, detailModalTextColor);
+        detailModalFooterLabel = CreateDetailModalUiLabel("DetailModalFooter", detailModalRect, detailModalFooterCharacterSize, FontStyle.Normal, detailModalAccentColor);
         SetDetailModalActive(false);
     }
 
-    private Material CreateDetailModalMaterial(string materialName, Color color)
+    private RectTransform CreateUiRect(string objectName, Transform parent)
     {
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-        if (shader == null)
-        {
-            shader = Shader.Find("Sprites/Default");
-        }
-
-        if (shader == null)
-        {
-            shader = Shader.Find("Unlit/Transparent");
-        }
-
-        if (shader == null)
-        {
-            shader = Shader.Find("Standard");
-        }
-
-        Material material = new Material(shader);
-        material.name = materialName;
-        material.color = color;
-        if (material.HasProperty("_BaseColor"))
-        {
-            material.SetColor("_BaseColor", color);
-        }
-
-        if (material.HasProperty("_Color"))
-        {
-            material.SetColor("_Color", color);
-        }
-
-        if (material.HasProperty("_Surface"))
-        {
-            material.SetFloat("_Surface", 1f);
-        }
-
-        if (material.HasProperty("_SrcBlend"))
-        {
-            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        }
-
-        if (material.HasProperty("_DstBlend"))
-        {
-            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        }
-
-        if (material.HasProperty("_ZWrite"))
-        {
-            material.SetInt("_ZWrite", 0);
-        }
-
-        if (material.HasProperty("_Cull"))
-        {
-            material.SetInt("_Cull", 0);
-        }
-
-        material.renderQueue = 3000;
-        return material;
+        GameObject gameObject = new GameObject(objectName, typeof(RectTransform));
+        gameObject.transform.SetParent(parent, false);
+        return gameObject.GetComponent<RectTransform>();
     }
 
-    private GameObject CreateDetailModalQuad(string objectName, Material material)
+    private Text CreateDetailModalUiLabel(string labelName, RectTransform parent, float characterSize, FontStyle fontStyle, Color color)
     {
-        GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        quad.name = objectName;
-        quad.transform.SetParent(detailModalRoot.transform, false);
-
-        Collider quadCollider = quad.GetComponent<Collider>();
-        if (quadCollider != null)
-        {
-            Destroy(quadCollider);
-        }
-
-        Renderer quadRenderer = quad.GetComponent<Renderer>();
-        if (quadRenderer != null)
-        {
-            quadRenderer.sharedMaterial = material;
-        }
-
-        return quad;
-    }
-
-    private TextMesh CreateDetailModalLabel(string labelName, float characterSize, Color color)
-    {
-        GameObject labelObject = new GameObject(labelName);
-        labelObject.transform.SetParent(detailModalRoot.transform, false);
-
-        TextMesh label = labelObject.AddComponent<TextMesh>();
-        label.anchor = TextAnchor.UpperLeft;
-        label.alignment = TextAlignment.Left;
-        label.fontSize = 64;
-        label.characterSize = characterSize;
-        label.lineSpacing = 0.92f;
+        RectTransform labelRect = CreateUiRect(labelName, parent);
+        Text label = labelRect.gameObject.AddComponent<Text>();
+        int fontSize = GetDetailModalFontSize(characterSize);
+        label.font = GetDetailModalFont();
+        label.fontSize = fontSize;
+        label.fontStyle = fontStyle;
+        label.alignment = TextAnchor.UpperLeft;
+        label.horizontalOverflow = HorizontalWrapMode.Wrap;
+        label.verticalOverflow = VerticalWrapMode.Truncate;
+        label.resizeTextForBestFit = true;
+        label.resizeTextMinSize = Mathf.Max(11, Mathf.RoundToInt(fontSize * 0.62f));
+        label.resizeTextMaxSize = fontSize;
+        label.supportRichText = false;
+        label.raycastTarget = false;
         label.color = color;
         return label;
+    }
+
+    private Font GetDetailModalFont()
+    {
+        if (detailModalFont != null)
+            return detailModalFont;
+
+        detailModalFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "Arial" }, 64);
+        if (detailModalFont == null)
+        {
+            detailModalFont = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        }
+
+        return detailModalFont;
+    }
+
+    private static int GetDetailModalFontSize(float characterSize)
+    {
+        return Mathf.Clamp(Mathf.RoundToInt(characterSize * 520f), 12, 40);
     }
 
     private void UpdateDetailModal()
@@ -1919,84 +1882,117 @@ public class ObjectFlowManager : MonoBehaviour
         if (detailModalRoot == null)
             return;
 
-        Camera labelCamera = null;
-        bool shouldShow = showDetailModal && currentMode == FlowMode.Detail && selectedIndex >= 0 && TryGetModeLabelCamera(out labelCamera);
+        bool shouldShow = showDetailModal && currentMode == FlowMode.Detail && selectedIndex >= 0;
         SetDetailModalActive(shouldShow);
         if (!shouldShow)
             return;
 
-        float modalDistance = Mathf.Max(0.1f, detailModalCameraDistance);
-        Vector2 clampedPosition = new Vector2(Mathf.Clamp(detailModalViewportPosition.x, 0.05f, 0.95f), Mathf.Clamp(detailModalViewportPosition.y, 0.05f, 0.95f));
+        UpdateDetailModalPanel();
+        UpdateDetailModalText();
+    }
+
+    private void UpdateDetailModalPanel()
+    {
+        if (detailModalRect == null)
+            return;
+
         Vector2 clampedSize = new Vector2(Mathf.Clamp(detailModalViewportSize.x, 0.1f, 0.8f), Mathf.Clamp(detailModalViewportSize.y, 0.1f, 0.85f));
-        Vector2 cameraWorldSize = GetCameraWorldSize(labelCamera, modalDistance);
-        Vector2 modalWorldSize = new Vector2(cameraWorldSize.x * clampedSize.x, cameraWorldSize.y * clampedSize.y);
+        Vector2 halfSize = clampedSize * 0.5f;
+        Vector2 clampedPosition = new Vector2(
+            Mathf.Clamp(detailModalViewportPosition.x, halfSize.x, 1f - halfSize.x),
+            Mathf.Clamp(detailModalViewportPosition.y, halfSize.y, 1f - halfSize.y));
 
-        detailModalRoot.transform.position = labelCamera.ViewportToWorldPoint(new Vector3(clampedPosition.x, clampedPosition.y, modalDistance));
-        detailModalRoot.transform.rotation = labelCamera.transform.rotation;
-        UpdateDetailModalPanel(modalWorldSize);
-        UpdateDetailModalText(modalWorldSize);
+        detailModalRect.anchorMin = clampedPosition - halfSize;
+        detailModalRect.anchorMax = clampedPosition + halfSize;
+        detailModalRect.offsetMin = Vector2.zero;
+        detailModalRect.offsetMax = Vector2.zero;
+        detailModalRect.localScale = Vector3.one;
+
+        if (detailModalPanelImage != null)
+        {
+            detailModalPanelImage.color = detailModalBackgroundColor;
+        }
+
+        if (detailModalAccentRect != null)
+        {
+            detailModalAccentRect.anchorMin = new Vector2(0f, 0f);
+            detailModalAccentRect.anchorMax = new Vector2(0f, 1f);
+            detailModalAccentRect.pivot = new Vector2(0f, 0.5f);
+            detailModalAccentRect.anchoredPosition = Vector2.zero;
+            detailModalAccentRect.sizeDelta = new Vector2(5f, 0f);
+        }
+
+        if (detailModalAccentImage != null)
+        {
+            detailModalAccentImage.color = detailModalBorderColor;
+        }
+
+        UpdateDetailModalTextRects();
     }
 
-    private void UpdateDetailModalPanel(Vector2 modalWorldSize)
+    private void UpdateDetailModalTextRects()
     {
-        if (detailModalPanel == null)
+        if (detailModalRect == null)
             return;
 
-        detailModalPanel.transform.localPosition = Vector3.zero;
-        detailModalPanel.transform.localRotation = Quaternion.identity;
-        detailModalPanel.transform.localScale = new Vector3(modalWorldSize.x, modalWorldSize.y, 1f);
+        float panelWidth = Mathf.Max(1f, Screen.width * (detailModalRect.anchorMax.x - detailModalRect.anchorMin.x));
+        float panelHeight = Mathf.Max(1f, Screen.height * (detailModalRect.anchorMax.y - detailModalRect.anchorMin.y));
+        float padding = Mathf.Min(panelWidth, panelHeight) * Mathf.Clamp(detailModalPaddingRatio, 0.04f, 0.2f);
+        float titleHeight = panelHeight * 0.2f;
+        float footerHeight = panelHeight * 0.1f;
+        float bodyTop = padding + titleHeight + panelHeight * 0.03f;
+        float bodyBottom = padding;
 
-        if (detailModalBorders == null || detailModalBorders.Length < 4)
-            return;
-
-        float borderSize = Mathf.Max(0.01f, Mathf.Min(modalWorldSize.x, modalWorldSize.y) * 0.012f);
-        float halfWidth = modalWorldSize.x * 0.5f;
-        float halfHeight = modalWorldSize.y * 0.5f;
-        SetModalBorder(detailModalBorders[0], new Vector3(0f, halfHeight - borderSize * 0.5f, -0.01f), new Vector3(modalWorldSize.x, borderSize, 1f));
-        SetModalBorder(detailModalBorders[1], new Vector3(0f, -halfHeight + borderSize * 0.5f, -0.01f), new Vector3(modalWorldSize.x, borderSize, 1f));
-        SetModalBorder(detailModalBorders[2], new Vector3(-halfWidth + borderSize * 0.5f, 0f, -0.01f), new Vector3(borderSize, modalWorldSize.y, 1f));
-        SetModalBorder(detailModalBorders[3], new Vector3(halfWidth - borderSize * 0.5f, 0f, -0.01f), new Vector3(borderSize, modalWorldSize.y, 1f));
+        SetRectOffsets(detailModalTitleLabel != null ? detailModalTitleLabel.rectTransform : null, padding, padding, padding, panelHeight - padding - titleHeight);
+        SetRectOffsets(detailModalSubtitleLabel != null ? detailModalSubtitleLabel.rectTransform : null, padding, padding + titleHeight * 0.64f, padding, panelHeight - padding - titleHeight);
+        SetRectOffsets(detailModalBodyLabel != null ? detailModalBodyLabel.rectTransform : null, padding, bodyTop, padding, bodyBottom);
+        SetRectOffsets(detailModalFooterLabel != null ? detailModalFooterLabel.rectTransform : null, padding, panelHeight - padding - footerHeight, padding, padding);
     }
 
-    private void SetModalBorder(GameObject border, Vector3 localPosition, Vector3 localScale)
+    private static void SetRectOffsets(RectTransform rectTransform, float left, float top, float right, float bottom)
     {
-        if (border == null)
+        if (rectTransform == null)
             return;
 
-        border.transform.localPosition = localPosition;
-        border.transform.localRotation = Quaternion.identity;
-        border.transform.localScale = localScale;
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.one;
+        rectTransform.offsetMin = new Vector2(left, bottom);
+        rectTransform.offsetMax = new Vector2(-right, -top);
+        rectTransform.localScale = Vector3.one;
     }
 
-    private void UpdateDetailModalText(Vector2 modalWorldSize)
+    private void UpdateDetailModalText()
     {
         int infoIndex = Mathf.Abs(selectedIndex) % DetailTitles.Length;
         MuseumArtifactInfo artifactInfo = GetSelectedMuseumArtifactInfo();
-        float padding = Mathf.Min(modalWorldSize.x, modalWorldSize.y) * 0.08f;
-        float left = -modalWorldSize.x * 0.5f + padding;
-        float top = modalWorldSize.y * 0.5f - padding;
-        float bottom = -modalWorldSize.y * 0.5f + padding;
-        float labelZ = -0.03f;
-        int titleLineLength = Mathf.Clamp(Mathf.FloorToInt((modalWorldSize.x - padding * 2f) / Mathf.Max(0.001f, detailModalTitleCharacterSize * 0.55f)), 8, 18);
-        int descriptionLineLength = Mathf.Clamp(Mathf.FloorToInt((modalWorldSize.x - padding * 2f) / Mathf.Max(0.001f, detailModalBodyCharacterSize * 0.55f)), 18, 38);
+        bool useMuseumLayout = detailModalMinimalMuseumLayout && artifactInfo != null && HasText(artifactInfo.description);
 
-        SetLabel(detailModalTitleLabel, WrapText(GetDetailTitle(artifactInfo, infoIndex), titleLineLength), detailModalTextColor);
-        SetLabel(detailModalSubtitleLabel, GetDetailSubtitle(artifactInfo, infoIndex), detailModalMutedTextColor);
-        SetLabel(detailModalBodyLabel, BuildDetailModalBody(artifactInfo, infoIndex, descriptionLineLength), detailModalTextColor);
-        SetLabel(detailModalFooterLabel, "More Info", detailModalAccentColor);
+        if (detailModalBodyLabel != null)
+        {
+            detailModalBodyLabel.lineSpacing = useMuseumLayout ? detailModalBodyLineSpacing : 1f;
+        }
 
-        detailModalTitleLabel.transform.localPosition = new Vector3(left, top, labelZ);
-        detailModalSubtitleLabel.transform.localPosition = new Vector3(left, top - modalWorldSize.y * 0.11f, labelZ);
-        detailModalBodyLabel.transform.localPosition = new Vector3(left, top - modalWorldSize.y * 0.25f, labelZ);
-        detailModalFooterLabel.transform.localPosition = new Vector3(left, bottom, labelZ);
+        if (useMuseumLayout)
+        {
+            SetUiLabelActive(detailModalSubtitleLabel, false);
+            SetUiLabelActive(detailModalFooterLabel, false);
+            SetUiLabel(detailModalTitleLabel, GetDetailTitle(artifactInfo, infoIndex), detailModalTextColor);
+            SetUiLabel(detailModalBodyLabel, BuildMuseumDescriptionText(artifactInfo), detailModalTextColor);
+            return;
+        }
+
+        SetUiLabel(detailModalTitleLabel, GetDetailTitle(artifactInfo, infoIndex), detailModalTextColor);
+        SetUiLabel(detailModalSubtitleLabel, GetDetailSubtitle(artifactInfo, infoIndex), detailModalMutedTextColor);
+        SetUiLabel(detailModalBodyLabel, BuildDetailModalBody(artifactInfo, infoIndex), detailModalTextColor);
+        SetUiLabel(detailModalFooterLabel, "More Info", detailModalAccentColor);
     }
 
-    private string BuildDetailModalBody(MuseumArtifactInfo artifactInfo, int infoIndex, int descriptionLineLength)
+    private string BuildDetailModalBody(MuseumArtifactInfo artifactInfo, int infoIndex)
     {
         if (artifactInfo != null && HasText(artifactInfo.description))
         {
             return "Description\n"
-                + WrapText(LimitText(artifactInfo.description, detailModalMaxDescriptionCharacters), descriptionLineLength);
+                + BuildMuseumDescriptionText(artifactInfo);
         }
 
         return "Material\n"
@@ -2004,7 +2000,25 @@ public class ObjectFlowManager : MonoBehaviour
             + "\n\nPeriod\n"
             + DetailPeriods[infoIndex]
             + "\n\nDescription\n"
-            + WrapText(DetailDescriptions[infoIndex], descriptionLineLength);
+            + DetailDescriptions[infoIndex];
+    }
+
+    private void SetUiLabel(Text label, string text, Color color)
+    {
+        if (label == null)
+            return;
+
+        label.gameObject.SetActive(!string.IsNullOrEmpty(text));
+        label.text = text;
+        label.color = color;
+    }
+
+    private void SetUiLabelActive(Text label, bool isActive)
+    {
+        if (label != null)
+        {
+            label.gameObject.SetActive(isActive);
+        }
     }
 
     private MuseumArtifactInfo GetSelectedMuseumArtifactInfo()
@@ -2092,6 +2106,61 @@ public class ObjectFlowManager : MonoBehaviour
         return text.Substring(0, maxCharacters).TrimEnd() + "...";
     }
 
+    private string BuildMuseumDescriptionText(MuseumArtifactInfo artifactInfo)
+    {
+        if (artifactInfo == null || !HasText(artifactInfo.description))
+            return string.Empty;
+
+        return SplitSentencesIntoParagraphs(LimitText(artifactInfo.description, detailModalMaxDescriptionCharacters));
+    }
+
+    private string SplitSentencesIntoParagraphs(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        string normalizedText = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        string formattedText = string.Empty;
+        int sentenceStart = 0;
+        for (int i = 0; i < normalizedText.Length; i++)
+        {
+            char character = normalizedText[i];
+            if (character != '.' && character != '!' && character != '?')
+                continue;
+
+            bool isSentenceEnd = i == normalizedText.Length - 1 || char.IsWhiteSpace(normalizedText[i + 1]);
+            if (!isSentenceEnd)
+                continue;
+
+            string sentence = normalizedText.Substring(sentenceStart, i - sentenceStart + 1).Trim();
+            if (sentence.Length > 0)
+            {
+                formattedText = AppendParagraph(formattedText, sentence);
+            }
+
+            sentenceStart = i + 1;
+        }
+
+        if (sentenceStart < normalizedText.Length)
+        {
+            string sentence = normalizedText.Substring(sentenceStart).Trim();
+            if (sentence.Length > 0)
+            {
+                formattedText = AppendParagraph(formattedText, sentence);
+            }
+        }
+
+        return formattedText;
+    }
+
+    private static string AppendParagraph(string text, string paragraph)
+    {
+        if (string.IsNullOrEmpty(text))
+            return paragraph;
+
+        return text + "\n\n" + paragraph;
+    }
+
     [System.Serializable]
     private class MuseumArtifactCollection
     {
@@ -2110,31 +2179,6 @@ public class ObjectFlowManager : MonoBehaviour
     {
         public GameObject prefab;
         public int artifactId;
-    }
-
-    private string WrapText(string text, int maxLineLength)
-    {
-        if (string.IsNullOrEmpty(text) || maxLineLength <= 0)
-            return text;
-
-        string[] words = text.Split(' ');
-        string wrappedText = string.Empty;
-        string currentLine = string.Empty;
-        for (int i = 0; i < words.Length; i++)
-        {
-            string word = words[i];
-            if (currentLine.Length > 0 && currentLine.Length + word.Length + 1 > maxLineLength)
-            {
-                wrappedText += currentLine + "\n";
-                currentLine = word;
-            }
-            else
-            {
-                currentLine = currentLine.Length == 0 ? word : currentLine + " " + word;
-            }
-        }
-
-        return wrappedText + currentLine;
     }
 
     private void SetDetailModalActive(bool isActive)

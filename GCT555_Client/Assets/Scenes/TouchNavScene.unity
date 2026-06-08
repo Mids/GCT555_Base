@@ -1029,19 +1029,23 @@ MonoBehaviour:
   modeBannerCharacterSize: 0.075
   modeHintCharacterSize: 0.058
   modeLabelMinCharacterSize: 0.035
+  hideModeLabelsInDetail: 1
   showDetailModal: 1
-  detailModalViewportPosition: {x: 0.78, y: 0.52}
-  detailModalViewportSize: {x: 0.28, y: 0.58}
+  detailModalViewportPosition: {x: 0.79, y: 0.52}
+  detailModalViewportSize: {x: 0.3, y: 0.72}
   detailModalCameraDistance: 6.6
-  detailModalBackgroundColor: {r: 0, g: 0, b: 0, a: 0.58}
-  detailModalBorderColor: {r: 1, g: 0.65, b: 0.15, a: 0.55}
-  detailModalTextColor: {r: 1, g: 1, b: 1, a: 1}
-  detailModalMutedTextColor: {r: 0.82, g: 0.82, b: 0.82, a: 1}
-  detailModalAccentColor: {r: 1, g: 0.65, b: 0.15, a: 1}
-  detailModalTitleCharacterSize: 0.07
-  detailModalBodyCharacterSize: 0.046
-  detailModalFooterCharacterSize: 0.048
-  detailModalMaxDescriptionCharacters: 260
+  detailModalBackgroundColor: {r: 0.015, g: 0.04, b: 0.075, a: 0.86}
+  detailModalBorderColor: {r: 0.64, g: 0.82, b: 1, a: 0.22}
+  detailModalTextColor: {r: 0.86, g: 0.9, b: 0.95, a: 1}
+  detailModalMutedTextColor: {r: 0.68, g: 0.76, b: 0.84, a: 1}
+  detailModalAccentColor: {r: 0.74, g: 0.86, b: 1, a: 1}
+  detailModalTitleCharacterSize: 0.052
+  detailModalBodyCharacterSize: 0.04
+  detailModalFooterCharacterSize: 0.044
+  detailModalBodyLineSpacing: 1.12
+  detailModalPaddingRatio: 0.11
+  detailModalMaxDescriptionCharacters: 220
+  detailModalMinimalMuseumLayout: 1
 --- !u!1 &2132842236
 GameObject:
   m_ObjectHideFlags: 0
