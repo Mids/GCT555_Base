@@ -2,6 +2,12 @@ using UnityEngine;
 
 public class ObjectFlowManager : MonoBehaviour
 {
+    public enum NavigationMode
+    {
+        MoveDistance,
+        ScreenTouch
+    }
+
     private enum FlowMode
     {
         Overview,
@@ -10,7 +16,14 @@ public class ObjectFlowManager : MonoBehaviour
         Detail
     }
 
-    private const int ObjectCount = 9;
+    private enum TouchSection
+    {
+        Left,
+        Center,
+        Right
+    }
+
+    private const int ObjectCount = 7;
     private const int LeftShoulderIndex = 11;
     private const int RightShoulderIndex = 12;
     private const int LeftWristIndex = 15;
@@ -33,6 +46,9 @@ public class ObjectFlowManager : MonoBehaviour
     public float position = 0.5f;
 
     public float gapMultiplier = 2f;
+    public float overviewSpacing = 0.85f;
+    public float overviewScale = 0.52f;
+    public float touchSelectionFlowSpeed = 8f;
 
     [Header("Pose Source")]
     public StreamManager streamManager;
@@ -40,6 +56,7 @@ public class ObjectFlowManager : MonoBehaviour
     public bool mirrorPoseX = false;
     public bool topIsDepthOne = true;
     public float poseFollowSpeed = 8f;
+    public float poseLostTimeout = 1f;
 
     [Header("Leonard Avatar")]
     public GameObject leonardAvatarPrefab;
@@ -55,6 +72,8 @@ public class ObjectFlowManager : MonoBehaviour
     public float leonardPositionFollowSpeed = 10f;
 
     [Header("Stage Controls")]
+    public NavigationMode navigationMode = NavigationMode.MoveDistance;
+
     [Range(0f, 1f)]
     public float browsingLine = 0.5f;
 
@@ -222,9 +241,12 @@ public class ObjectFlowManager : MonoBehaviour
     private TextMesh detailModalFooterLabel;
     private GameObject leonardAvatarInstance;
     private Animator leonardAnimator;
+    private bool hasPoseTracking = true;
     private bool hasLeonardMoveSpeedParameter;
     private bool hasLeonardPointingParameter;
     private bool hasPreviousLeonardLocalPosition;
+    private bool hasTouchLayoutFocusedIndex;
+    private float touchLayoutFocusedIndex;
     private Vector3 previousLeonardLocalPosition;
     private bool hasTwoHandBaseline;
     private int twoHandManipulationIndex = -1;
@@ -351,14 +373,31 @@ public class ObjectFlowManager : MonoBehaviour
     private void ApplyPoseInput()
     {
         if (!driveFromPose)
+        {
+            hasPoseTracking = true;
             return;
+        }
 
         StreamClient client = GetPoseClient();
         if (client == null || client.latestPoseData == null || client.latestPoseData.landmarks == null)
+        {
+            hasPoseTracking = false;
             return;
+        }
+
+        if (poseLostTimeout > 0f && client.lastDataTime >= 0f && Time.time - client.lastDataTime > poseLostTimeout)
+        {
+            hasPoseTracking = false;
+            return;
+        }
 
         if (!TryGetPoseCenter(client.latestPoseData, out Vector2 poseCenter))
+        {
+            hasPoseTracking = false;
             return;
+        }
+
+        hasPoseTracking = true;
 
         float targetPosition = mirrorPoseX ? 1f - poseCenter.x : poseCenter.x;
         float targetDepth = topIsDepthOne ? 1f - poseCenter.y : poseCenter.y;
@@ -514,11 +553,16 @@ public class ObjectFlowManager : MonoBehaviour
     {
         center = new Vector2(0.5f, 0.5f);
 
-        if (poseData.landmarks.Count <= Mathf.Max(Mathf.Max(a, b), Mathf.Max(c, d)))
+        if (!TryGetVisibleLandmark(poseData, a, out Landmark landmarkA)
+            || !TryGetVisibleLandmark(poseData, b, out Landmark landmarkB)
+            || !TryGetVisibleLandmark(poseData, c, out Landmark landmarkC)
+            || !TryGetVisibleLandmark(poseData, d, out Landmark landmarkD))
+        {
             return false;
+        }
 
-        center.x = (poseData.landmarks[a].x + poseData.landmarks[b].x + poseData.landmarks[c].x + poseData.landmarks[d].x) * 0.25f;
-        center.y = (poseData.landmarks[a].y + poseData.landmarks[b].y + poseData.landmarks[c].y + poseData.landmarks[d].y) * 0.25f;
+        center.x = (landmarkA.x + landmarkB.x + landmarkC.x + landmarkD.x) * 0.25f;
+        center.y = (landmarkA.y + landmarkB.y + landmarkC.y + landmarkD.y) * 0.25f;
         return true;
     }
 
@@ -564,6 +608,12 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void UpdateTrackingState()
     {
+        if (driveFromPose && !hasPoseTracking)
+        {
+            ReturnToOverviewAfterPoseLoss();
+            return;
+        }
+
         if (!useBrowsingMode)
         {
             currentMode = FlowMode.Overview;
@@ -572,6 +622,30 @@ public class ObjectFlowManager : MonoBehaviour
             return;
         }
 
+        if (navigationMode == NavigationMode.ScreenTouch)
+        {
+            UpdateTouchNavigationState();
+            return;
+        }
+
+        UpdateMoveNavigationState();
+    }
+
+    private void ReturnToOverviewAfterPoseLoss()
+    {
+        if (currentMode != FlowMode.Overview || selectedIndex >= 0 || candidateIndex >= 0)
+        {
+            Debug.Log("[ObjectFlowManager] Pose tracking lost. Returning to Overview mode.");
+        }
+
+        currentMode = FlowMode.Overview;
+        ClearModeSelection();
+        ResetTwoHandManipulation();
+        wasWristTouching = false;
+    }
+
+    private void UpdateMoveNavigationState()
+    {
         bool isInBrowsingZone = depth >= browsingLine;
         if (!isInBrowsingZone)
         {
@@ -631,9 +705,109 @@ public class ObjectFlowManager : MonoBehaviour
         }
     }
 
+    private void UpdateTouchNavigationState()
+    {
+        EnsureTouchNavigationCandidate();
+
+        bool wasTouchingBefore = wasWristTouching;
+        bool isTouching = TryGetScreenTouch(out TouchSection touchSection, out float touchX, out string touchReason);
+        if (logWristTouchDebug && isTouching != wasTouchingBefore)
+        {
+            Debug.Log(isTouching ? $"[ObjectFlowManager] Screen touch detected: {touchReason}" : "[ObjectFlowManager] Screen touch ended.");
+        }
+
+        wasWristTouching = isTouching;
+        bool touchStarted = isTouching && !wasTouchingBefore;
+
+        if (currentMode == FlowMode.TouchConfirmed)
+        {
+            if (Time.time >= touchConfirmationEndTime)
+            {
+                currentMode = FlowMode.Detail;
+                detailEntryDepth = depth;
+                Debug.Log($"[ObjectFlowManager] Detail mode entered for FlowCube_{selectedIndex + 1}.");
+            }
+
+            return;
+        }
+
+        if (!touchStarted)
+            return;
+
+        switch (currentMode)
+        {
+            case FlowMode.Overview:
+                currentMode = FlowMode.Browsing;
+                candidateIndex = GetObjectIndexFromTouchX(touchX);
+                selectedIndex = -1;
+                ResetTwoHandManipulation();
+                Debug.Log($"[ObjectFlowManager] Touch navigation entered Browsing mode. section={touchSection}, candidate=FlowCube_{candidateIndex + 1}, touchX={touchX:F3}");
+                break;
+            case FlowMode.Browsing:
+                HandleTouchNavigationBrowseTouch(touchSection, touchX);
+                break;
+            case FlowMode.Detail:
+                int returnCandidate = selectedIndex >= 0 ? selectedIndex : candidateIndex;
+                currentMode = FlowMode.Browsing;
+                selectedIndex = -1;
+                candidateIndex = Mathf.Clamp(returnCandidate, 0, ObjectCount - 1);
+                ResetTwoHandManipulation();
+                Debug.Log($"[ObjectFlowManager] Touch navigation returned to Browsing mode from Detail. candidate=FlowCube_{candidateIndex + 1}, section={touchSection}, touchX={touchX:F3}");
+                break;
+            default:
+                currentMode = FlowMode.Overview;
+                ClearModeSelection();
+                ResetTwoHandManipulation();
+                break;
+        }
+    }
+
+    private void EnsureTouchNavigationCandidate()
+    {
+        if (currentMode == FlowMode.Overview)
+        {
+            candidateIndex = -1;
+            return;
+        }
+
+        if (candidateIndex < 0)
+        {
+            candidateIndex = GetObjectIndexAtPosition();
+        }
+
+        candidateIndex = Mathf.Clamp(candidateIndex, 0, ObjectCount - 1);
+    }
+
+    private void HandleTouchNavigationBrowseTouch(TouchSection touchSection, float touchX)
+    {
+        switch (touchSection)
+        {
+            case TouchSection.Left:
+                candidateIndex = Mathf.Max(0, candidateIndex - 1);
+                Debug.Log($"[ObjectFlowManager] Touch navigation moved selection left to FlowCube_{candidateIndex + 1}. touchX={touchX:F3}");
+                break;
+            case TouchSection.Right:
+                candidateIndex = Mathf.Min(ObjectCount - 1, candidateIndex + 1);
+                Debug.Log($"[ObjectFlowManager] Touch navigation moved selection right to FlowCube_{candidateIndex + 1}. touchX={touchX:F3}");
+                break;
+            default:
+                selectedIndex = candidateIndex;
+                currentMode = FlowMode.Detail;
+                detailEntryDepth = depth;
+                ResetTwoHandManipulation();
+                Debug.Log($"[ObjectFlowManager] Touch navigation entered Detail mode for FlowCube_{selectedIndex + 1}. touchX={touchX:F3}");
+                break;
+        }
+    }
+
     private int GetObjectIndexAtPosition()
     {
         return Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(position) * (ObjectCount - 1)), 0, ObjectCount - 1);
+    }
+
+    private int GetObjectIndexFromTouchX(float touchX)
+    {
+        return Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(touchX) * (ObjectCount - 1)), 0, ObjectCount - 1);
     }
 
     private bool IsSelectionActive()
@@ -651,10 +825,7 @@ public class ObjectFlowManager : MonoBehaviour
 
     private bool IsScreenTouched()
     {
-        if (!useWristTouchDetection)
-            return depth >= screenTouchLine;
-
-        bool isTouching = TryGetWristTouch(out string reason);
+        bool isTouching = TryGetScreenTouch(out _, out _, out string reason);
         if (logWristTouchDebug && isTouching != wasWristTouching)
         {
             Debug.Log(isTouching ? $"[ObjectFlowManager] Wrist touch detected: {reason}" : "[ObjectFlowManager] Wrist touch ended.");
@@ -664,9 +835,18 @@ public class ObjectFlowManager : MonoBehaviour
         return isTouching;
     }
 
-    private bool TryGetWristTouch(out string reason)
+    private bool TryGetScreenTouch(out TouchSection touchSection, out float touchX, out string reason)
     {
+        touchX = Mathf.Clamp01(position);
+        touchSection = GetTouchSection(touchX);
         reason = "";
+
+        if (!useWristTouchDetection)
+        {
+            bool isTouching = depth >= screenTouchLine;
+            reason = $"depth={depth:F3}, touchX={touchX:F3}, section={touchSection}, touchLine={screenTouchLine:F3}";
+            return isTouching;
+        }
 
         StreamClient client = GetPoseClient();
         PoseData poseData = client != null ? client.latestPoseData : null;
@@ -680,7 +860,9 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (leftTouch || rightTouch)
         {
-            reason = $"{FormatWrist("left", leftWrist, leftTouch)} {FormatWrist("right", rightWrist, rightTouch)} touchLine={screenTouchLine:F3}";
+            touchX = GetTouchX(leftWrist, leftTouch, rightWrist, rightTouch);
+            touchSection = GetTouchSection(touchX);
+            reason = $"{FormatWrist("left", leftWrist, leftTouch)} {FormatWrist("right", rightWrist, rightTouch)} touchX={touchX:F3}, section={touchSection}, touchLine={screenTouchLine:F3}";
             return true;
         }
 
@@ -708,7 +890,47 @@ public class ObjectFlowManager : MonoBehaviour
         if (wrist == null)
             return $"{label}=missing";
 
-        return $"{label}(y={wrist.y:F3}, visibility={wrist.visibility:F3}, touching={touching})";
+        return $"{label}(x={GetPoseScreenX(wrist):F3}, y={wrist.y:F3}, visibility={wrist.visibility:F3}, touching={touching})";
+    }
+
+    private float GetTouchX(Landmark leftWrist, bool leftTouch, Landmark rightWrist, bool rightTouch)
+    {
+        float touchXSum = 0f;
+        int touchCount = 0;
+
+        if (leftTouch)
+        {
+            touchXSum += GetPoseScreenX(leftWrist);
+            touchCount++;
+        }
+
+        if (rightTouch)
+        {
+            touchXSum += GetPoseScreenX(rightWrist);
+            touchCount++;
+        }
+
+        return touchCount > 0 ? Mathf.Clamp01(touchXSum / touchCount) : Mathf.Clamp01(position);
+    }
+
+    private float GetPoseScreenX(Landmark landmark)
+    {
+        if (landmark == null)
+            return Mathf.Clamp01(position);
+
+        return Mathf.Clamp01(mirrorPoseX ? 1f - landmark.x : landmark.x);
+    }
+
+    private TouchSection GetTouchSection(float normalizedX)
+    {
+        float clampedX = Mathf.Clamp01(normalizedX);
+        if (clampedX < 1f / 3f)
+            return TouchSection.Left;
+
+        if (clampedX > 2f / 3f)
+            return TouchSection.Right;
+
+        return TouchSection.Center;
     }
 
     private void UpdateTwoHandManipulation()
@@ -820,6 +1042,25 @@ public class ObjectFlowManager : MonoBehaviour
         float clampedDepth = Mathf.Clamp01(depth);
         float focusedIndex = Mathf.Clamp01(position) * (ObjectCount - 1);
         float spacing = Mathf.Lerp(MinSpacing, MaxSpacing, clampedDepth) * gapMultiplier;
+        bool useTouchSelectionFlow = navigationMode == NavigationMode.ScreenTouch && currentMode == FlowMode.Browsing && candidateIndex >= 0;
+        if (useTouchSelectionFlow)
+        {
+            float targetFocusedIndex = Mathf.Clamp(candidateIndex, 0, ObjectCount - 1);
+            if (!hasTouchLayoutFocusedIndex)
+            {
+                touchLayoutFocusedIndex = (ObjectCount - 1) * 0.5f;
+                hasTouchLayoutFocusedIndex = true;
+            }
+
+            float followT = 1f - Mathf.Exp(-Mathf.Max(0.01f, touchSelectionFlowSpeed) * Time.deltaTime);
+            touchLayoutFocusedIndex = Mathf.Lerp(touchLayoutFocusedIndex, targetFocusedIndex, followT);
+            focusedIndex = touchLayoutFocusedIndex;
+            spacing = overviewSpacing;
+        }
+        else
+        {
+            hasTouchLayoutFocusedIndex = false;
+        }
 
         for (int i = 0; i < ObjectCount; i++)
         {
@@ -841,7 +1082,14 @@ public class ObjectFlowManager : MonoBehaviour
             bool isSelected = IsSelectionActive() && i == selectedIndex;
             bool isCandidate = currentMode == FlowMode.Browsing && selectedIndex < 0 && i == candidateIndex;
             bool isDetailBackground = currentMode == FlowMode.Detail && selectedIndex >= 0 && i != selectedIndex;
-            if (currentMode == FlowMode.Detail && selectedIndex >= 0)
+            if (UsesStaticLineupLayout())
+            {
+                float overviewOffset = i - (ObjectCount - 1) * 0.5f;
+                x = overviewOffset * overviewSpacing;
+                scale = overviewScale;
+                sideAmount = 1f;
+            }
+            else if (currentMode == FlowMode.Detail && selectedIndex >= 0)
             {
                 int detailOffset = i - selectedIndex;
                 x = detailOffset * detailSideSpacing;
@@ -880,6 +1128,11 @@ public class ObjectFlowManager : MonoBehaviour
             flowObject.transform.localScale = Vector3.one * scale;
             UpdateSelectionVisual(i, isSelected, isCandidate, isDetailBackground);
         }
+    }
+
+    private bool UsesStaticLineupLayout()
+    {
+        return currentMode == FlowMode.Overview;
     }
 
     private Vector2 GetBodyDetailRotation()
@@ -985,7 +1238,7 @@ public class ObjectFlowManager : MonoBehaviour
         switch (currentMode)
         {
             case FlowMode.Browsing:
-                SetLabel(modeBannerLabel, "Browse: touch to select", candidateColor);
+                SetLabel(modeBannerLabel, navigationMode == NavigationMode.ScreenTouch ? "Browse: left / center / right" : "Browse: touch to select", candidateColor);
                 SetLabel(modeHintLabel, candidateIndex >= 0 ? $"Candidate: Cube {candidateIndex + 1}" : string.Empty, candidateColor);
                 break;
             case FlowMode.TouchConfirmed:
@@ -994,11 +1247,11 @@ public class ObjectFlowManager : MonoBehaviour
                 break;
             case FlowMode.Detail:
                 SetLabel(modeBannerLabel, selectedIndex >= 0 ? $"Detail: Cube {selectedIndex + 1}" : "Detail", selectionColor);
-                SetLabel(modeHintLabel, "Step back to browse", candidateColor);
+                SetLabel(modeHintLabel, navigationMode == NavigationMode.ScreenTouch ? "Touch to browse" : "Step back to browse", candidateColor);
                 break;
             default:
                 SetLabel(modeBannerLabel, "Overview", Color.white);
-                SetLabel(modeHintLabel, "Move closer", Color.white);
+                SetLabel(modeHintLabel, navigationMode == NavigationMode.ScreenTouch ? "Touch to browse" : "Move closer", Color.white);
                 break;
         }
 
@@ -1341,7 +1594,16 @@ public class ObjectFlowManager : MonoBehaviour
         if (!showDebugLines)
             return;
 
-        DrawDebugLine(browsingLine, browsingLineColor);
+        if (navigationMode == NavigationMode.MoveDistance)
+        {
+            DrawDebugLine(browsingLine, browsingLineColor);
+        }
+        else
+        {
+            DrawDebugSectionLine(1f / 3f, touchLineColor);
+            DrawDebugSectionLine(2f / 3f, touchLineColor);
+        }
+
         DrawDebugLine(screenTouchLine, touchLineColor);
     }
 
@@ -1351,6 +1613,15 @@ public class ObjectFlowManager : MonoBehaviour
         float halfLength = debugLineLength * 0.5f;
         Vector3 start = transform.TransformPoint(new Vector3(-halfLength, localY, debugLineZ));
         Vector3 end = transform.TransformPoint(new Vector3(halfLength, localY, debugLineZ));
+        Debug.DrawLine(start, end, color);
+    }
+
+    private void DrawDebugSectionLine(float normalizedX, Color color)
+    {
+        float halfLength = debugLineLength * 0.5f;
+        float localX = Mathf.Lerp(-halfLength, halfLength, Mathf.Clamp01(normalizedX));
+        Vector3 start = transform.TransformPoint(new Vector3(localX, 2f, debugLineZ));
+        Vector3 end = transform.TransformPoint(new Vector3(localX, -2f, debugLineZ));
         Debug.DrawLine(start, end, color);
     }
 

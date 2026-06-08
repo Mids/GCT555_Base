@@ -79,6 +79,7 @@ public class StreamClient : MonoBehaviour
     public List<Landmark> activeLandmarks;
     public PoseData latestPoseData;
     public string currentGesture = "None";
+    public float lastDataTime = -1f;
 
     void Start()
     {
@@ -162,6 +163,8 @@ public class StreamClient : MonoBehaviour
     {
         try
         {
+            lastDataTime = Time.time;
+
             switch (clientType)
             {
                 case ClientType.Pose:
