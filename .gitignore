@@ -44,6 +44,10 @@ GCT555_Server/test_input.mp4
 # MemoryCaptures can get excessive
 [Mm]emoryCaptures/
 
+# Raw artifact source imports; FinalArtifacts prefabs stay trackable
+[Aa]rtifacts/
+[Aa]rtifacts.meta
+
 # Asset meta data should only be ignored when the corresponding asset is also ignored
 ![Aa]ssets/**/*.meta
 

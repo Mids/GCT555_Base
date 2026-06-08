@@ -32,11 +32,14 @@ public class ObjectFlowManager : MonoBehaviour
     private const int RightHipIndex = 24;
     private const float MinSpacing = 0.45f;
     private const float MaxSpacing = 1.05f;
-    private const float CenterScale = 0.75f;
+    private const float CenterScale = 1f;
     private const float SideScale = 0.52f;
     private const float BrowsingCenterScale = 1.05f;
     private static readonly int LeonardMoveSpeedHash = Animator.StringToHash("MoveSpeed");
     private static readonly int LeonardIsPointingHash = Animator.StringToHash("IsPointing");
+    private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+    private static readonly int ColorId = Shader.PropertyToID("_Color");
+    private static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
 
     [Header("Flow Controls")]
     [Range(0f, 1f)]
@@ -51,6 +54,10 @@ public class ObjectFlowManager : MonoBehaviour
     public float browseSpacing = 1.05f;
     public float browseScale = 0.62f;
     public float touchSelectionFlowSpeed = 8f;
+
+    [Header("Artifact Prefabs")]
+    public GameObject[] finalArtifactPrefabs;
+    public float artifactNormalizedSize = CenterScale;
 
     [Header("Pose Source")]
     public StreamManager streamManager;
@@ -156,6 +163,9 @@ public class ObjectFlowManager : MonoBehaviour
     public float detailModalFooterCharacterSize = 0.048f;
 
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
+    private readonly Renderer[][] flowRenderers = new Renderer[ObjectCount][];
+    private readonly Vector3[] flowBaseScales = new Vector3[ObjectCount];
+    private readonly bool[] flowUsesGeneratedMaterial = new bool[ObjectCount];
     private readonly Color[] baseColors = { Color.red, Color.green, Color.blue };
     private static readonly string[] DetailTitles =
     {
@@ -264,6 +274,7 @@ public class ObjectFlowManager : MonoBehaviour
     private float selectedYawOffset;
     private float selectedPitchOffset;
     private float selectedRollOffset;
+    private MaterialPropertyBlock selectionPropertyBlock;
 
     private void Awake()
     {
@@ -345,32 +356,200 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void EnsureObjects()
     {
-        EnsureMaterials();
+        GameObject[] selectedPrefabs = PickRandomFinalArtifactPrefabs();
+        if (selectedPrefabs == null || selectedPrefabs.Length < ObjectCount)
+        {
+            EnsureMaterials();
+        }
 
         for (int i = 0; i < ObjectCount; i++)
         {
             if (flowObjects[i] != null)
                 continue;
 
-            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            cube.name = $"FlowCube_{i + 1}";
-            cube.transform.SetParent(transform, false);
-            cube.transform.localScale = Vector3.one * CenterScale;
-
-            Collider cubeCollider = cube.GetComponent<Collider>();
-            if (cubeCollider != null)
-            {
-                Destroy(cubeCollider);
-            }
-
-            Renderer cubeRenderer = cube.GetComponent<Renderer>();
-            if (cubeRenderer != null && generatedMaterials != null)
-            {
-                cubeRenderer.sharedMaterial = generatedMaterials[i % generatedMaterials.Length];
-            }
-
-            flowObjects[i] = cube;
+            GameObject flowObject = CreateFlowObject(i, selectedPrefabs);
+            flowObjects[i] = flowObject;
+            flowBaseScales[i] = flowObject.transform.localScale;
+            CacheFlowRenderers(i);
         }
+    }
+
+    private GameObject[] PickRandomFinalArtifactPrefabs()
+    {
+        int availableCount = CountValidFinalArtifactPrefabs();
+        if (availableCount == 0)
+            return null;
+
+        GameObject[] pool = new GameObject[availableCount];
+        int poolIndex = 0;
+        for (int i = 0; i < finalArtifactPrefabs.Length; i++)
+        {
+            if (finalArtifactPrefabs[i] != null)
+            {
+                pool[poolIndex] = finalArtifactPrefabs[i];
+                poolIndex++;
+            }
+        }
+
+        int selectedCount = Mathf.Min(ObjectCount, pool.Length);
+        GameObject[] selectedPrefabs = new GameObject[selectedCount];
+        for (int i = 0; i < selectedCount; i++)
+        {
+            int selectedIndexInPool = Random.Range(i, pool.Length);
+            selectedPrefabs[i] = pool[selectedIndexInPool];
+            pool[selectedIndexInPool] = pool[i];
+            pool[i] = selectedPrefabs[i];
+        }
+
+        return selectedPrefabs;
+    }
+
+    private int CountValidFinalArtifactPrefabs()
+    {
+        if (finalArtifactPrefabs == null)
+            return 0;
+
+        int count = 0;
+        for (int i = 0; i < finalArtifactPrefabs.Length; i++)
+        {
+            if (finalArtifactPrefabs[i] != null)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private GameObject CreateFlowObject(int index, GameObject[] selectedPrefabs)
+    {
+        if (selectedPrefabs != null && index < selectedPrefabs.Length && selectedPrefabs[index] != null)
+        {
+            return CreateArtifactFlowObject(index, selectedPrefabs[index]);
+        }
+
+        return CreateFallbackCube(index);
+    }
+
+    private GameObject CreateArtifactFlowObject(int index, GameObject prefab)
+    {
+        GameObject artifactRoot = new GameObject($"FlowArtifact_{index + 1}_{prefab.name}");
+        artifactRoot.transform.SetParent(transform, false);
+
+        GameObject artifact = Instantiate(prefab, artifactRoot.transform);
+        artifact.name = prefab.name;
+        artifact.transform.localPosition = Vector3.zero;
+        RemoveColliders(artifact);
+        NormalizeArtifactChild(artifactRoot.transform, artifact.transform);
+        flowUsesGeneratedMaterial[index] = false;
+        return artifactRoot;
+    }
+
+    private GameObject CreateFallbackCube(int index)
+    {
+        GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cube.name = $"FlowCube_{index + 1}";
+        cube.transform.SetParent(transform, false);
+        cube.transform.localScale = Vector3.one * CenterScale;
+
+        Collider cubeCollider = cube.GetComponent<Collider>();
+        if (cubeCollider != null)
+        {
+            Destroy(cubeCollider);
+        }
+
+        Renderer cubeRenderer = cube.GetComponent<Renderer>();
+        if (cubeRenderer != null && generatedMaterials != null)
+        {
+            cubeRenderer.sharedMaterial = generatedMaterials[index % generatedMaterials.Length];
+        }
+
+        flowUsesGeneratedMaterial[index] = true;
+        return cube;
+    }
+
+    private void CacheFlowRenderers(int index)
+    {
+        if (flowObjects[index] == null)
+        {
+            flowRenderers[index] = null;
+            return;
+        }
+
+        flowRenderers[index] = flowObjects[index].GetComponentsInChildren<Renderer>(true);
+    }
+
+    private void RemoveColliders(GameObject root)
+    {
+        Collider[] colliders = root.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Destroy(colliders[i]);
+        }
+    }
+
+    private void NormalizeArtifactChild(Transform artifactRoot, Transform artifactChild)
+    {
+        Renderer[] renderers = artifactRoot.GetComponentsInChildren<Renderer>(true);
+        if (!TryGetLocalRendererBounds(artifactRoot, renderers, out Bounds bounds))
+            return;
+
+        float largestSize = Mathf.Max(bounds.size.x, Mathf.Max(bounds.size.y, bounds.size.z));
+        if (largestSize <= 0.0001f)
+            return;
+
+        float targetSize = Mathf.Max(0.0001f, artifactNormalizedSize);
+        artifactChild.localScale *= targetSize / largestSize;
+
+        renderers = artifactRoot.GetComponentsInChildren<Renderer>(true);
+        if (TryGetLocalRendererBounds(artifactRoot, renderers, out bounds))
+        {
+            artifactChild.localPosition -= bounds.center;
+        }
+    }
+
+    private bool TryGetLocalRendererBounds(Transform root, Renderer[] renderers, out Bounds bounds)
+    {
+        bounds = new Bounds(Vector3.zero, Vector3.zero);
+        bool hasBounds = false;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+
+            Bounds rendererBounds = renderer.bounds;
+            Vector3 min = rendererBounds.min;
+            Vector3 max = rendererBounds.max;
+            Vector3[] corners =
+            {
+                new Vector3(min.x, min.y, min.z),
+                new Vector3(min.x, min.y, max.z),
+                new Vector3(min.x, max.y, min.z),
+                new Vector3(min.x, max.y, max.z),
+                new Vector3(max.x, min.y, min.z),
+                new Vector3(max.x, min.y, max.z),
+                new Vector3(max.x, max.y, min.z),
+                new Vector3(max.x, max.y, max.z)
+            };
+
+            for (int cornerIndex = 0; cornerIndex < corners.Length; cornerIndex++)
+            {
+                Vector3 localCorner = root.InverseTransformPoint(corners[cornerIndex]);
+                if (!hasBounds)
+                {
+                    bounds = new Bounds(localCorner, Vector3.zero);
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(localCorner);
+                }
+            }
+        }
+
+        return hasBounds;
     }
 
     private void ApplyPoseInput()
@@ -1147,7 +1326,8 @@ public class ObjectFlowManager : MonoBehaviour
 
             flowObject.transform.localPosition = new Vector3(x, y, z);
             flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, zRotation);
-            flowObject.transform.localScale = Vector3.one * scale;
+            Vector3 baseScale = flowBaseScales[i] == Vector3.zero ? Vector3.one : flowBaseScales[i];
+            flowObject.transform.localScale = baseScale * scale;
             UpdateSelectionVisual(i, isSelected, isCandidate, isDetailBackground);
         }
     }
@@ -1168,11 +1348,6 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void UpdateSelectionVisual(int index, bool isSelected, bool isCandidate, bool isDetailBackground)
     {
-        Renderer flowRenderer = flowObjects[index].GetComponent<Renderer>();
-        if (flowRenderer == null || generatedMaterials == null)
-            return;
-
-        Material material = generatedMaterials[index % generatedMaterials.Length];
         Color baseColor = baseColors[index % baseColors.Length];
         Color color = baseColor;
         if (isDetailBackground)
@@ -1188,28 +1363,86 @@ public class ObjectFlowManager : MonoBehaviour
             color = Color.Lerp(baseColor, candidateColor, 0.55f);
         }
 
-        material.color = color;
-        if (material.HasProperty("_BaseColor"))
+        if (flowUsesGeneratedMaterial[index] && generatedMaterials != null)
         {
-            material.SetColor("_BaseColor", color);
+            Material material = generatedMaterials[index % generatedMaterials.Length];
+            material.color = color;
+            if (material.HasProperty("_BaseColor"))
+            {
+                material.SetColor("_BaseColor", color);
+            }
+
+            if (material.HasProperty("_EmissionColor"))
+            {
+                if (isSelected)
+                {
+                    material.EnableKeyword("_EMISSION");
+                    material.SetColor("_EmissionColor", selectionColor * 1.2f);
+                }
+                else if (isCandidate)
+                {
+                    material.EnableKeyword("_EMISSION");
+                    material.SetColor("_EmissionColor", candidateColor * 0.55f);
+                }
+                else
+                {
+                    material.SetColor("_EmissionColor", Color.black);
+                }
+            }
+
+            return;
         }
 
-        if (material.HasProperty("_EmissionColor"))
+        Renderer[] renderers = flowRenderers[index];
+        if ((renderers == null || renderers.Length == 0) && flowObjects[index] != null)
         {
-            if (isSelected)
+            CacheFlowRenderers(index);
+            renderers = flowRenderers[index];
+        }
+
+        if (renderers == null)
+            return;
+
+        if (selectionPropertyBlock == null)
+        {
+            selectionPropertyBlock = new MaterialPropertyBlock();
+        }
+
+        bool hasOverride = isSelected || isCandidate || isDetailBackground;
+        Color tint = Color.white;
+        Color emission = Color.black;
+        if (isDetailBackground)
+        {
+            tint = Color.Lerp(Color.white, Color.black, detailBackgroundDim);
+        }
+        else if (isSelected)
+        {
+            tint = Color.Lerp(Color.white, selectionColor, 0.35f);
+            emission = selectionColor * 0.85f;
+        }
+        else if (isCandidate)
+        {
+            tint = Color.Lerp(Color.white, candidateColor, 0.28f);
+            emission = candidateColor * 0.35f;
+        }
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+
+            if (!hasOverride)
             {
-                material.EnableKeyword("_EMISSION");
-                material.SetColor("_EmissionColor", selectionColor * 1.2f);
+                renderer.SetPropertyBlock(null);
+                continue;
             }
-            else if (isCandidate)
-            {
-                material.EnableKeyword("_EMISSION");
-                material.SetColor("_EmissionColor", candidateColor * 0.55f);
-            }
-            else
-            {
-                material.SetColor("_EmissionColor", Color.black);
-            }
+
+            selectionPropertyBlock.Clear();
+            selectionPropertyBlock.SetColor(BaseColorId, tint);
+            selectionPropertyBlock.SetColor(ColorId, tint);
+            selectionPropertyBlock.SetColor(EmissionColorId, emission);
+            renderer.SetPropertyBlock(selectionPropertyBlock);
         }
     }
 

@@ -933,6 +933,26 @@ MonoBehaviour:
   browseSpacing: 1.05
   browseScale: 0.62
   touchSelectionFlowSpeed: 8
+  finalArtifactPrefabs:
+  - {fileID: 1589486384804891351, guid: d27580b04b85847a692bc84436755387, type: 3}
+  - {fileID: 2871990557989244022, guid: d95a174d531db4b31a79b50a183d7541, type: 3}
+  - {fileID: 7829180442599754004, guid: 54aec7cd001c64a9f90d3c8cd22dec37, type: 3}
+  - {fileID: 1332855670978300242, guid: 4bcb94240b3c84017a27aea48a53f85d, type: 3}
+  - {fileID: 1580143354578708080, guid: c473ae1b7d546403e81a7f8ac2b53b35, type: 3}
+  - {fileID: 1889392393004430879, guid: a8b344490354c491390ca7419b1e14c6, type: 3}
+  - {fileID: 6282853686482822398, guid: bbbceb149f6704f95a04eff9e7c52f82, type: 3}
+  - {fileID: 1243254056295793742, guid: 5889e2b570db042a88f28cd00325486b, type: 3}
+  - {fileID: 8171361292145559993, guid: f0a6315ed3b62408b8516d1e2006e87e, type: 3}
+  - {fileID: 49899903733537333, guid: 31dead9dccd8a478cb58a51be0f8a0ca, type: 3}
+  - {fileID: 8456074205875964196, guid: 21172ca7ef01f4ea99341f1dd9889843, type: 3}
+  - {fileID: 8678634460846990285, guid: 9eafbcb582aee49a8bc44856a3bc5d1c, type: 3}
+  - {fileID: 5338668774596378645, guid: 6c71a82cad6af46ed9723c528b671439, type: 3}
+  - {fileID: 8098356281119980060, guid: cbb30b0451a85469eaaa399a2c2bd0c2, type: 3}
+  - {fileID: 5004304187809390282, guid: 949c6d02f1b524dc3a110335d67f45a1, type: 3}
+  - {fileID: 2243094180054996899, guid: 9daa77e8455734d068998dd0753da9d6, type: 3}
+  - {fileID: 1457226707240985354, guid: a3735a2ce46bf4141bf4defeb9b6430e, type: 3}
+  - {fileID: 7530586813375755081, guid: e5148762d94f64cc98481958868a40be, type: 3}
+  artifactNormalizedSize: 1
   streamManager: {fileID: 1405606663}
   driveFromPose: 1
   mirrorPoseX: 0
