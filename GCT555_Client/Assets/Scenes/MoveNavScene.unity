@@ -928,11 +928,17 @@ MonoBehaviour:
   depth: 0.5
   position: 0.5
   gapMultiplier: 2
+  overviewSpacing: 0.5
+  overviewScale: 0.4
+  browseSpacing: 1.05
+  browseScale: 0.62
+  touchSelectionFlowSpeed: 8
   streamManager: {fileID: 1405606663}
   driveFromPose: 1
   mirrorPoseX: 0
   topIsDepthOne: 0
   poseFollowSpeed: 8
+  poseLostTimeout: 1
   leonardAvatarPrefab: {fileID: 919132149155446097, guid: 1a5dee5e6cfba894d8ab1614784a1f37, type: 3}
   leonardAnimatorController: {fileID: 9100000, guid: 9d3a1b6e2c4f4d198ef87bb1bb3d5f12, type: 2}
   leonardAnimatorSpeed: 1
@@ -944,6 +950,7 @@ MonoBehaviour:
   leonardLocalY: -0.5
   leonardLocalEulerAngles: {x: 0, y: 0, z: 0}
   leonardPositionFollowSpeed: 10
+  navigationMode: 0
   browsingLine: 0.2
   screenTouchLine: 0.85
   useBrowsingMode: 1

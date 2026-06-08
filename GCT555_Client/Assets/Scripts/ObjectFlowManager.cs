@@ -637,14 +637,14 @@ public class ObjectFlowManager : MonoBehaviour
             return;
         }
 
+        if (poseTrackingJustRestored)
+        {
+            EnterBrowseAfterPoseRestore();
+            return;
+        }
+
         if (navigationMode == NavigationMode.ScreenTouch)
         {
-            if (poseTrackingJustRestored)
-            {
-                EnterTouchBrowseAfterPoseRestore();
-                return;
-            }
-
             UpdateTouchNavigationState();
             return;
         }
@@ -665,32 +665,18 @@ public class ObjectFlowManager : MonoBehaviour
         wasWristTouching = false;
     }
 
-    private void EnterTouchBrowseAfterPoseRestore()
+    private void EnterBrowseAfterPoseRestore()
     {
         currentMode = FlowMode.Browsing;
         selectedIndex = -1;
         candidateIndex = GetObjectIndexAtPosition();
         ResetTwoHandManipulation();
-        wasWristTouching = TryGetScreenTouch(out _, out _, out _);
-        Debug.Log($"[ObjectFlowManager] Pose tracking restored. Switching to Browsing mode. candidate=FlowCube_{candidateIndex + 1}");
+        wasWristTouching = IsScreenTouched();
+        Debug.Log($"[ObjectFlowManager] Pose tracking restored. Switching to Browsing mode. navigation={navigationMode}, candidate=FlowCube_{candidateIndex + 1}");
     }
 
     private void UpdateMoveNavigationState()
     {
-        bool isInBrowsingZone = depth >= browsingLine;
-        if (!isInBrowsingZone)
-        {
-            if (currentMode != FlowMode.Overview && selectedIndex >= 0)
-            {
-                Debug.Log($"[ObjectFlowManager] Detail selection cleared after leaving Browsing mode. position={position:F3}, depth={depth:F3}");
-            }
-
-            currentMode = FlowMode.Overview;
-            ClearModeSelection();
-            ResetTwoHandManipulation();
-            return;
-        }
-
         candidateIndex = GetObjectIndexAtPosition();
 
         bool wasTouchingBefore = wasWristTouching;
@@ -711,10 +697,9 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (currentMode == FlowMode.Detail)
         {
-            float returnDepth = Mathf.Max(browsingLine, detailEntryDepth - Mathf.Max(0f, detailReturnDepthDelta));
-            if (!isTouching && depth <= returnDepth)
+            if (touchStarted)
             {
-                Debug.Log($"[ObjectFlowManager] Returned to Browsing mode from Detail. position={position:F3}, depth={depth:F3}");
+                Debug.Log($"[ObjectFlowManager] Returned to Browsing mode from Detail by touch. position={position:F3}, depth={depth:F3}");
                 currentMode = FlowMode.Browsing;
                 selectedIndex = -1;
                 ResetTwoHandManipulation();
