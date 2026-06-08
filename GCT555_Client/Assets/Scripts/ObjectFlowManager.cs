@@ -57,6 +57,7 @@ public class ObjectFlowManager : MonoBehaviour
 
     [Header("Artifact Prefabs")]
     public GameObject[] finalArtifactPrefabs;
+    public TextAsset museumArtifactData;
     public float artifactNormalizedSize = CenterScale;
     public float artifactYawOffsetDegrees = 180f;
 
@@ -173,6 +174,7 @@ public class ObjectFlowManager : MonoBehaviour
     public float detailModalTitleCharacterSize = 0.07f;
     public float detailModalBodyCharacterSize = 0.046f;
     public float detailModalFooterCharacterSize = 0.048f;
+    public int detailModalMaxDescriptionCharacters = 260;
 
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
     private readonly Renderer[][] flowRenderers = new Renderer[ObjectCount][];
@@ -181,6 +183,7 @@ public class ObjectFlowManager : MonoBehaviour
     private readonly GameObject[] artifactStandObjects = new GameObject[ObjectCount];
     private readonly Bounds[] artifactLocalBounds = new Bounds[ObjectCount];
     private readonly bool[] hasArtifactLocalBounds = new bool[ObjectCount];
+    private readonly MuseumArtifactInfo[] flowArtifactInfos = new MuseumArtifactInfo[ObjectCount];
     private readonly Color[] baseColors = { Color.red, Color.green, Color.blue };
     private static readonly string[] DetailTitles =
     {
@@ -250,6 +253,8 @@ public class ObjectFlowManager : MonoBehaviour
     private Material artifactStandBodyMaterial;
     private Material artifactStandTopMaterial;
     private Material artifactStandPanelMaterial;
+    private MuseumArtifactInfo[] museumArtifacts;
+    private bool didLoadMuseumArtifacts;
     private StreamClient poseClient;
     private FlowMode currentMode = FlowMode.Overview;
     private int candidateIndex = -1;
@@ -397,7 +402,7 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void EnsureObjects()
     {
-        GameObject[] selectedPrefabs = PickRandomFinalArtifactPrefabs();
+        SelectedArtifactPrefab[] selectedPrefabs = PickRandomFinalArtifactPrefabs();
         if (selectedPrefabs == null || selectedPrefabs.Length < ObjectCount)
         {
             EnsureMaterials();
@@ -415,25 +420,29 @@ public class ObjectFlowManager : MonoBehaviour
         }
     }
 
-    private GameObject[] PickRandomFinalArtifactPrefabs()
+    private SelectedArtifactPrefab[] PickRandomFinalArtifactPrefabs()
     {
         int availableCount = CountValidFinalArtifactPrefabs();
         if (availableCount == 0)
             return null;
 
-        GameObject[] pool = new GameObject[availableCount];
+        SelectedArtifactPrefab[] pool = new SelectedArtifactPrefab[availableCount];
         int poolIndex = 0;
         for (int i = 0; i < finalArtifactPrefabs.Length; i++)
         {
             if (finalArtifactPrefabs[i] != null)
             {
-                pool[poolIndex] = finalArtifactPrefabs[i];
+                pool[poolIndex] = new SelectedArtifactPrefab
+                {
+                    prefab = finalArtifactPrefabs[i],
+                    artifactId = i + 1
+                };
                 poolIndex++;
             }
         }
 
         int selectedCount = Mathf.Min(ObjectCount, pool.Length);
-        GameObject[] selectedPrefabs = new GameObject[selectedCount];
+        SelectedArtifactPrefab[] selectedPrefabs = new SelectedArtifactPrefab[selectedCount];
         for (int i = 0; i < selectedCount; i++)
         {
             int selectedIndexInPool = Random.Range(i, pool.Length);
@@ -462,20 +471,21 @@ public class ObjectFlowManager : MonoBehaviour
         return count;
     }
 
-    private GameObject CreateFlowObject(int index, GameObject[] selectedPrefabs)
+    private GameObject CreateFlowObject(int index, SelectedArtifactPrefab[] selectedPrefabs)
     {
-        if (selectedPrefabs != null && index < selectedPrefabs.Length && selectedPrefabs[index] != null)
+        if (selectedPrefabs != null && index < selectedPrefabs.Length && selectedPrefabs[index].prefab != null)
         {
-            return CreateArtifactFlowObject(index, selectedPrefabs[index]);
+            return CreateArtifactFlowObject(index, selectedPrefabs[index].prefab, selectedPrefabs[index].artifactId);
         }
 
         return CreateFallbackCube(index);
     }
 
-    private GameObject CreateArtifactFlowObject(int index, GameObject prefab)
+    private GameObject CreateArtifactFlowObject(int index, GameObject prefab, int artifactId)
     {
         GameObject artifactRoot = new GameObject($"FlowArtifact_{index + 1}_{prefab.name}");
         artifactRoot.transform.SetParent(transform, false);
+        flowArtifactInfos[index] = FindMuseumArtifactInfo(artifactId);
 
         GameObject artifact = Instantiate(prefab, artifactRoot.transform);
         artifact.name = prefab.name;
@@ -497,6 +507,8 @@ public class ObjectFlowManager : MonoBehaviour
 
     private GameObject CreateFallbackCube(int index)
     {
+        flowArtifactInfos[index] = null;
+
         GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
         cube.name = $"FlowCube_{index + 1}";
         cube.transform.SetParent(transform, false);
@@ -1959,16 +1971,18 @@ public class ObjectFlowManager : MonoBehaviour
     private void UpdateDetailModalText(Vector2 modalWorldSize)
     {
         int infoIndex = Mathf.Abs(selectedIndex) % DetailTitles.Length;
+        MuseumArtifactInfo artifactInfo = GetSelectedMuseumArtifactInfo();
         float padding = Mathf.Min(modalWorldSize.x, modalWorldSize.y) * 0.08f;
         float left = -modalWorldSize.x * 0.5f + padding;
         float top = modalWorldSize.y * 0.5f - padding;
         float bottom = -modalWorldSize.y * 0.5f + padding;
         float labelZ = -0.03f;
+        int titleLineLength = Mathf.Clamp(Mathf.FloorToInt((modalWorldSize.x - padding * 2f) / Mathf.Max(0.001f, detailModalTitleCharacterSize * 0.55f)), 8, 18);
         int descriptionLineLength = Mathf.Clamp(Mathf.FloorToInt((modalWorldSize.x - padding * 2f) / Mathf.Max(0.001f, detailModalBodyCharacterSize * 0.55f)), 18, 38);
 
-        SetLabel(detailModalTitleLabel, DetailTitles[infoIndex], detailModalTextColor);
-        SetLabel(detailModalSubtitleLabel, DetailOrigins[infoIndex], detailModalMutedTextColor);
-        SetLabel(detailModalBodyLabel, BuildDetailModalBody(infoIndex, descriptionLineLength), detailModalTextColor);
+        SetLabel(detailModalTitleLabel, WrapText(GetDetailTitle(artifactInfo, infoIndex), titleLineLength), detailModalTextColor);
+        SetLabel(detailModalSubtitleLabel, GetDetailSubtitle(artifactInfo, infoIndex), detailModalMutedTextColor);
+        SetLabel(detailModalBodyLabel, BuildDetailModalBody(artifactInfo, infoIndex, descriptionLineLength), detailModalTextColor);
         SetLabel(detailModalFooterLabel, "More Info", detailModalAccentColor);
 
         detailModalTitleLabel.transform.localPosition = new Vector3(left, top, labelZ);
@@ -1977,14 +1991,125 @@ public class ObjectFlowManager : MonoBehaviour
         detailModalFooterLabel.transform.localPosition = new Vector3(left, bottom, labelZ);
     }
 
-    private string BuildDetailModalBody(int infoIndex, int descriptionLineLength)
+    private string BuildDetailModalBody(MuseumArtifactInfo artifactInfo, int infoIndex, int descriptionLineLength)
     {
+        if (artifactInfo != null && HasText(artifactInfo.description))
+        {
+            return "Description\n"
+                + WrapText(LimitText(artifactInfo.description, detailModalMaxDescriptionCharacters), descriptionLineLength);
+        }
+
         return "Material\n"
             + DetailMaterials[infoIndex]
             + "\n\nPeriod\n"
             + DetailPeriods[infoIndex]
             + "\n\nDescription\n"
             + WrapText(DetailDescriptions[infoIndex], descriptionLineLength);
+    }
+
+    private MuseumArtifactInfo GetSelectedMuseumArtifactInfo()
+    {
+        if (selectedIndex < 0 || selectedIndex >= flowArtifactInfos.Length)
+            return null;
+
+        return flowArtifactInfos[selectedIndex];
+    }
+
+    private string GetDetailTitle(MuseumArtifactInfo artifactInfo, int fallbackIndex)
+    {
+        if (artifactInfo != null && HasText(artifactInfo.title))
+            return artifactInfo.title;
+
+        return DetailTitles[fallbackIndex];
+    }
+
+    private string GetDetailSubtitle(MuseumArtifactInfo artifactInfo, int fallbackIndex)
+    {
+        if (artifactInfo != null && artifactInfo.id > 0)
+            return $"Artifact {artifactInfo.id}";
+
+        return DetailOrigins[fallbackIndex];
+    }
+
+    private MuseumArtifactInfo FindMuseumArtifactInfo(int artifactId)
+    {
+        EnsureMuseumArtifactsLoaded();
+
+        if (artifactId <= 0 || museumArtifacts == null)
+            return null;
+
+        for (int i = 0; i < museumArtifacts.Length; i++)
+        {
+            MuseumArtifactInfo artifactInfo = museumArtifacts[i];
+            if (artifactInfo != null && artifactInfo.id == artifactId)
+                return artifactInfo;
+        }
+
+        return null;
+    }
+
+    private void EnsureMuseumArtifactsLoaded()
+    {
+        if (didLoadMuseumArtifacts)
+            return;
+
+        didLoadMuseumArtifacts = true;
+        museumArtifacts = null;
+
+        if (museumArtifactData == null || string.IsNullOrEmpty(museumArtifactData.text))
+            return;
+
+        MuseumArtifactCollection collection;
+        try
+        {
+            collection = JsonUtility.FromJson<MuseumArtifactCollection>(museumArtifactData.text);
+        }
+        catch (System.ArgumentException exception)
+        {
+            Debug.LogWarning($"[ObjectFlowManager] Could not parse museum artifact JSON: {exception.Message}");
+            return;
+        }
+
+        if (collection == null || collection.artifacts == null || collection.artifacts.Length == 0)
+        {
+            Debug.LogWarning("[ObjectFlowManager] Museum artifact JSON did not contain any artifacts.");
+            return;
+        }
+
+        museumArtifacts = collection.artifacts;
+    }
+
+    private static bool HasText(string text)
+    {
+        return !string.IsNullOrEmpty(text);
+    }
+
+    private static string LimitText(string text, int maxCharacters)
+    {
+        if (string.IsNullOrEmpty(text) || maxCharacters <= 0 || text.Length <= maxCharacters)
+            return text;
+
+        return text.Substring(0, maxCharacters).TrimEnd() + "...";
+    }
+
+    [System.Serializable]
+    private class MuseumArtifactCollection
+    {
+        public MuseumArtifactInfo[] artifacts;
+    }
+
+    [System.Serializable]
+    private class MuseumArtifactInfo
+    {
+        public int id;
+        public string title;
+        public string description;
+    }
+
+    private struct SelectedArtifactPrefab
+    {
+        public GameObject prefab;
+        public int artifactId;
     }
 
     private string WrapText(string text, int maxLineLength)

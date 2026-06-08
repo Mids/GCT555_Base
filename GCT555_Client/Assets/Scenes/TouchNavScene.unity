@@ -952,6 +952,7 @@ MonoBehaviour:
   - {fileID: 7949081257134537945, guid: 2942860a472024f45b580c593f9594ac, type: 3}
   - {fileID: 1457226707240985354, guid: a3735a2ce46bf4141bf4defeb9b6430e, type: 3}
   - {fileID: 7798774404994564241, guid: ea4ff4376e25846e9ae0a32155f8dad2, type: 3}
+  museumArtifactData: {fileID: 4900000, guid: 77b714114128d5043b07c6505f0adc34, type: 3}
   artifactNormalizedSize: 1
   showArtifactStands: 1
   artifactStandFloorY: -0.5
@@ -1040,6 +1041,7 @@ MonoBehaviour:
   detailModalTitleCharacterSize: 0.07
   detailModalBodyCharacterSize: 0.046
   detailModalFooterCharacterSize: 0.048
+  detailModalMaxDescriptionCharacters: 260
 --- !u!1 &2132842236
 GameObject:
   m_ObjectHideFlags: 0
