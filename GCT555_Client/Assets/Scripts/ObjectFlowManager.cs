@@ -59,6 +59,17 @@ public class ObjectFlowManager : MonoBehaviour
     public GameObject[] finalArtifactPrefabs;
     public float artifactNormalizedSize = CenterScale;
 
+    [Header("Artifact Stands")]
+    public bool showArtifactStands = true;
+    public float artifactStandFloorY = -0.5f;
+    public Vector2 artifactStandFootprint = new Vector2(1.1f, 1.1f);
+    public float artifactStandHeight = 0.65f;
+    public float artifactStandTopThickness = 0.08f;
+    public float artifactStandPanelDepth = 0.025f;
+    public Color artifactStandBodyColor = new Color(0.72f, 0.71f, 0.66f, 1f);
+    public Color artifactStandTopColor = new Color(0.94f, 0.93f, 0.9f, 1f);
+    public Color artifactStandPanelColor = new Color(0.82f, 0.81f, 0.76f, 1f);
+
     [Header("Pose Source")]
     public StreamManager streamManager;
     public bool driveFromPose = true;
@@ -166,6 +177,9 @@ public class ObjectFlowManager : MonoBehaviour
     private readonly Renderer[][] flowRenderers = new Renderer[ObjectCount][];
     private readonly Vector3[] flowBaseScales = new Vector3[ObjectCount];
     private readonly bool[] flowUsesGeneratedMaterial = new bool[ObjectCount];
+    private readonly GameObject[] artifactStandObjects = new GameObject[ObjectCount];
+    private readonly Bounds[] artifactLocalBounds = new Bounds[ObjectCount];
+    private readonly bool[] hasArtifactLocalBounds = new bool[ObjectCount];
     private readonly Color[] baseColors = { Color.red, Color.green, Color.blue };
     private static readonly string[] DetailTitles =
     {
@@ -232,6 +246,9 @@ public class ObjectFlowManager : MonoBehaviour
         "A carved figure used as a teaching object in courtly archive demonstrations."
     };
     private Material[] generatedMaterials;
+    private Material artifactStandBodyMaterial;
+    private Material artifactStandTopMaterial;
+    private Material artifactStandPanelMaterial;
     private StreamClient poseClient;
     private FlowMode currentMode = FlowMode.Overview;
     private int candidateIndex = -1;
@@ -312,6 +329,14 @@ public class ObjectFlowManager : MonoBehaviour
             }
         }
 
+        for (int i = 0; i < artifactStandObjects.Length; i++)
+        {
+            if (artifactStandObjects[i] != null)
+            {
+                Destroy(artifactStandObjects[i]);
+            }
+        }
+
         if (generatedMaterials != null)
         {
             for (int i = 0; i < generatedMaterials.Length; i++)
@@ -321,6 +346,21 @@ public class ObjectFlowManager : MonoBehaviour
                     Destroy(generatedMaterials[i]);
                 }
             }
+        }
+
+        if (artifactStandBodyMaterial != null)
+        {
+            Destroy(artifactStandBodyMaterial);
+        }
+
+        if (artifactStandTopMaterial != null)
+        {
+            Destroy(artifactStandTopMaterial);
+        }
+
+        if (artifactStandPanelMaterial != null)
+        {
+            Destroy(artifactStandPanelMaterial);
         }
 
         if (leonardAvatarInstance != null)
@@ -441,6 +481,15 @@ public class ObjectFlowManager : MonoBehaviour
         artifact.transform.localPosition = Vector3.zero;
         RemoveColliders(artifact);
         NormalizeArtifactChild(artifactRoot.transform, artifact.transform);
+        Bounds artifactBounds = GetDefaultArtifactBounds();
+        if (TryGetLocalRendererBounds(artifactRoot.transform, artifactRoot.GetComponentsInChildren<Renderer>(true), out Bounds normalizedBounds))
+        {
+            artifactBounds = normalizedBounds;
+        }
+
+        artifactLocalBounds[index] = artifactBounds;
+        hasArtifactLocalBounds[index] = true;
+        CreateArtifactStand(index);
         flowUsesGeneratedMaterial[index] = false;
         return artifactRoot;
     }
@@ -466,6 +515,74 @@ public class ObjectFlowManager : MonoBehaviour
 
         flowUsesGeneratedMaterial[index] = true;
         return cube;
+    }
+
+    private void CreateArtifactStand(int index)
+    {
+        if (!showArtifactStands)
+            return;
+
+        EnsureArtifactStandMaterials();
+
+        float width = Mathf.Max(0.1f, artifactStandFootprint.x);
+        float depth = Mathf.Max(0.1f, artifactStandFootprint.y);
+        float bodyHeight = Mathf.Max(0.01f, artifactStandHeight);
+        float topThickness = Mathf.Max(0.01f, artifactStandTopThickness);
+        float panelDepth = Mathf.Max(0.001f, artifactStandPanelDepth);
+
+        GameObject standRoot = new GameObject($"ArtifactStand_{index + 1}");
+        standRoot.transform.SetParent(transform, false);
+        artifactStandObjects[index] = standRoot;
+
+        CreateStandCube(
+            "StandBody",
+            standRoot.transform,
+            new Vector3(width, bodyHeight, depth),
+            new Vector3(0f, bodyHeight * 0.5f, 0f),
+            artifactStandBodyMaterial);
+
+        CreateStandCube(
+            "StandTop",
+            standRoot.transform,
+            new Vector3(width * 1.08f, topThickness, depth * 1.08f),
+            new Vector3(0f, bodyHeight + topThickness * 0.5f, 0f),
+            artifactStandTopMaterial);
+
+        Vector3 panelScale = new Vector3(width * 0.66f, bodyHeight * 0.58f, panelDepth);
+        Vector3 frontPanelPosition = new Vector3(0f, bodyHeight * 0.5f, -depth * 0.5f - panelDepth * 0.5f - 0.001f);
+        Vector3 backPanelPosition = new Vector3(0f, bodyHeight * 0.5f, depth * 0.5f + panelDepth * 0.5f + 0.001f);
+        CreateStandCube("StandFrontInset", standRoot.transform, panelScale, frontPanelPosition, artifactStandPanelMaterial);
+        CreateStandCube("StandBackInset", standRoot.transform, panelScale, backPanelPosition, artifactStandPanelMaterial);
+    }
+
+    private GameObject CreateStandCube(string name, Transform parent, Vector3 localScale, Vector3 localPosition, Material material)
+    {
+        GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cube.name = name;
+        cube.transform.SetParent(parent, false);
+        cube.transform.localPosition = localPosition;
+        cube.transform.localRotation = Quaternion.identity;
+        cube.transform.localScale = localScale;
+
+        Collider collider = cube.GetComponent<Collider>();
+        if (collider != null)
+        {
+            Destroy(collider);
+        }
+
+        Renderer renderer = cube.GetComponent<Renderer>();
+        if (renderer != null && material != null)
+        {
+            renderer.sharedMaterial = material;
+        }
+
+        return cube;
+    }
+
+    private Bounds GetDefaultArtifactBounds()
+    {
+        float size = Mathf.Max(0.0001f, artifactNormalizedSize);
+        return new Bounds(Vector3.zero, Vector3.one * size);
     }
 
     private void CacheFlowRenderers(int index)
@@ -765,12 +882,7 @@ public class ObjectFlowManager : MonoBehaviour
         if (generatedMaterials != null)
             return;
 
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-        if (shader == null)
-        {
-            shader = Shader.Find("Standard");
-        }
-
+        Shader shader = FindCompatibleLitShader();
         if (shader == null)
         {
             Debug.LogError("[ObjectFlowManager] Could not find a compatible cube shader.");
@@ -782,6 +894,37 @@ public class ObjectFlowManager : MonoBehaviour
         {
             generatedMaterials[i] = CreateMaterial(shader, baseColors[i % baseColors.Length]);
         }
+    }
+
+    private void EnsureArtifactStandMaterials()
+    {
+        if (artifactStandBodyMaterial != null && artifactStandTopMaterial != null && artifactStandPanelMaterial != null)
+            return;
+
+        Shader shader = FindCompatibleLitShader();
+        if (shader == null)
+        {
+            Debug.LogError("[ObjectFlowManager] Could not find a compatible stand shader.");
+            return;
+        }
+
+        artifactStandBodyMaterial = CreateMaterial(shader, artifactStandBodyColor);
+        artifactStandBodyMaterial.name = "ArtifactStand_Body";
+        artifactStandTopMaterial = CreateMaterial(shader, artifactStandTopColor);
+        artifactStandTopMaterial.name = "ArtifactStand_Top";
+        artifactStandPanelMaterial = CreateMaterial(shader, artifactStandPanelColor);
+        artifactStandPanelMaterial.name = "ArtifactStand_Panel";
+    }
+
+    private Shader FindCompatibleLitShader()
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        return shader;
     }
 
     private Material CreateMaterial(Shader shader, Color color)
@@ -1324,12 +1467,51 @@ public class ObjectFlowManager : MonoBehaviour
                 y += selectionLift;
             }
 
-            flowObject.transform.localPosition = new Vector3(x, y, z);
+            float artifactY = y + GetArtifactYOnStand(i, scale);
+            flowObject.transform.localPosition = new Vector3(x, artifactY, z);
             flowObject.transform.localRotation = Quaternion.Euler(xRotation, yRotation, zRotation);
             Vector3 baseScale = flowBaseScales[i] == Vector3.zero ? Vector3.one : flowBaseScales[i];
             flowObject.transform.localScale = baseScale * scale;
+            UpdateArtifactStandLayout(i, x, z);
             UpdateSelectionVisual(i, isSelected, isCandidate, isDetailBackground);
         }
+    }
+
+    private void UpdateArtifactStandLayout(int index, float artifactX, float artifactZ)
+    {
+        GameObject stand = artifactStandObjects[index];
+        if (stand == null)
+            return;
+
+        if (!showArtifactStands)
+        {
+            stand.SetActive(false);
+            return;
+        }
+
+        if (!stand.activeSelf)
+        {
+            stand.SetActive(true);
+        }
+
+        stand.transform.localPosition = new Vector3(artifactX, artifactStandFloorY, artifactZ);
+        stand.transform.localRotation = Quaternion.identity;
+        stand.transform.localScale = Vector3.one;
+    }
+
+    private float GetArtifactYOnStand(int index, float artifactScale)
+    {
+        if (!showArtifactStands || artifactStandObjects[index] == null)
+            return 0f;
+
+        Bounds bounds = hasArtifactLocalBounds[index] ? artifactLocalBounds[index] : GetDefaultArtifactBounds();
+        float standTopY = artifactStandFloorY + GetArtifactStandTotalHeight();
+        return standTopY - bounds.min.y * artifactScale;
+    }
+
+    private float GetArtifactStandTotalHeight()
+    {
+        return Mathf.Max(0.01f, artifactStandHeight) + Mathf.Max(0.01f, artifactStandTopThickness);
     }
 
     private bool UsesStaticLineupLayout()
