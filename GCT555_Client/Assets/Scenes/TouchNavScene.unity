@@ -969,6 +969,11 @@ MonoBehaviour:
   topIsDepthOne: 0
   poseFollowSpeed: 8
   poseLostTimeout: 1
+  usePoseCenterSmoothing: 1
+  poseCenterFilterSpeed: 14
+  useWristSmoothing: 1
+  wristFilterSpeed: 18
+  touchLineHysteresis: 0.02
   leonardAvatarPrefab: {fileID: 919132149155446097, guid: 1a5dee5e6cfba894d8ab1614784a1f37, type: 3}
   leonardAnimatorController: {fileID: 9100000, guid: 9d3a1b6e2c4f4d198ef87bb1bb3d5f12, type: 2}
   leonardAnimatorSpeed: 1

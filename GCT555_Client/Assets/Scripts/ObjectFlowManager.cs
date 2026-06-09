@@ -35,6 +35,7 @@ public class ObjectFlowManager : MonoBehaviour
     private const int RightWristIndex = 16;
     private const int LeftHipIndex = 23;
     private const int RightHipIndex = 24;
+    private const int LandmarkFilterCapacity = 33;
     private const float MinSpacing = 0.45f;
     private const float MaxSpacing = 1.05f;
     private const float CenterScale = 1f;
@@ -84,6 +85,14 @@ public class ObjectFlowManager : MonoBehaviour
     public bool topIsDepthOne = true;
     public float poseFollowSpeed = 8f;
     public float poseLostTimeout = 1f;
+
+    [Header("Pose Filtering")]
+    public bool usePoseCenterSmoothing = true;
+    public float poseCenterFilterSpeed = 14f;
+    public bool useWristSmoothing = true;
+    public float wristFilterSpeed = 18f;
+    [Range(0f, 0.1f)]
+    public float touchLineHysteresis = 0.02f;
 
     [Header("Leonard Avatar")]
     public GameObject leonardAvatarPrefab;
@@ -303,6 +312,11 @@ public class ObjectFlowManager : MonoBehaviour
     private Vector3 previousLeonardLocalPosition;
     private bool hasTwoHandBaseline;
     private int twoHandManipulationIndex = -1;
+    private bool hasFilteredPoseCenter;
+    private Vector2 filteredPoseCenter;
+    private readonly bool[] hasFilteredLandmarkScreenPoints = new bool[LandmarkFilterCapacity];
+    private readonly Vector2[] filteredLandmarkScreenPoints = new Vector2[LandmarkFilterCapacity];
+    private readonly int[] filteredLandmarkScreenPointFrames = new int[LandmarkFilterCapacity];
     private string userEventLogPath;
     private bool didInitializeUserEventLog;
     private float nextManipulationUserEventLogTime;
@@ -557,7 +571,7 @@ public class ObjectFlowManager : MonoBehaviour
         SelectedArtifactPrefab[] selectedPrefabs = new SelectedArtifactPrefab[selectedCount];
         for (int i = 0; i < selectedCount; i++)
         {
-            int selectedIndexInPool = Random.Range(i, pool.Length);
+            int selectedIndexInPool = UnityEngine.Random.Range(i, pool.Length);
             selectedPrefabs[i] = pool[selectedIndexInPool];
             pool[selectedIndexInPool] = pool[i];
             pool[i] = selectedPrefabs[i];
@@ -825,6 +839,7 @@ public class ObjectFlowManager : MonoBehaviour
 
         SetPoseTracking(true);
 
+        poseCenter = FilterPoseCenter(poseCenter);
         float targetPosition = mirrorPoseX ? 1f - poseCenter.x : poseCenter.x;
         float targetDepth = topIsDepthOne ? 1f - poseCenter.y : poseCenter.y;
         float followT = 1f - Mathf.Exp(-poseFollowSpeed * Time.deltaTime);
@@ -842,10 +857,88 @@ public class ObjectFlowManager : MonoBehaviour
         }
 
         hasPoseTracking = isTracking;
+        if (previousTracking && !isTracking)
+        {
+            ResetPoseFilters();
+        }
+
         if (previousTracking != isTracking)
         {
             LogUserEvent(isTracking ? "pose_tracking_restored" : "pose_tracking_lost", $"position={position:F4}; depth={depth:F4}");
         }
+    }
+
+    private Vector2 FilterPoseCenter(Vector2 rawPoseCenter)
+    {
+        Vector2 clampedPoseCenter = Clamp01(rawPoseCenter);
+        if (!usePoseCenterSmoothing || poseCenterFilterSpeed <= 0f)
+        {
+            filteredPoseCenter = clampedPoseCenter;
+            hasFilteredPoseCenter = true;
+            return clampedPoseCenter;
+        }
+
+        if (!hasFilteredPoseCenter)
+        {
+            filteredPoseCenter = clampedPoseCenter;
+            hasFilteredPoseCenter = true;
+            return clampedPoseCenter;
+        }
+
+        float follow = GetFilterFollow(poseCenterFilterSpeed);
+        filteredPoseCenter = Vector2.Lerp(filteredPoseCenter, clampedPoseCenter, follow);
+        return filteredPoseCenter;
+    }
+
+    private Vector2 FilterLandmarkScreenPoint(int landmarkIndex, Vector2 rawScreenPoint)
+    {
+        Vector2 clampedScreenPoint = Clamp01(rawScreenPoint);
+        if (!useWristSmoothing || wristFilterSpeed <= 0f || landmarkIndex < 0 || landmarkIndex >= LandmarkFilterCapacity)
+            return clampedScreenPoint;
+
+        if (hasFilteredLandmarkScreenPoints[landmarkIndex] && filteredLandmarkScreenPointFrames[landmarkIndex] == Time.frameCount)
+            return filteredLandmarkScreenPoints[landmarkIndex];
+
+        if (!hasFilteredLandmarkScreenPoints[landmarkIndex])
+        {
+            filteredLandmarkScreenPoints[landmarkIndex] = clampedScreenPoint;
+            hasFilteredLandmarkScreenPoints[landmarkIndex] = true;
+            filteredLandmarkScreenPointFrames[landmarkIndex] = Time.frameCount;
+            return clampedScreenPoint;
+        }
+
+        float follow = GetFilterFollow(wristFilterSpeed);
+        filteredLandmarkScreenPoints[landmarkIndex] = Vector2.Lerp(filteredLandmarkScreenPoints[landmarkIndex], clampedScreenPoint, follow);
+        filteredLandmarkScreenPointFrames[landmarkIndex] = Time.frameCount;
+        return filteredLandmarkScreenPoints[landmarkIndex];
+    }
+
+    private static float GetFilterFollow(float filterSpeed)
+    {
+        return 1f - Mathf.Exp(-Mathf.Max(0.01f, filterSpeed) * Time.deltaTime);
+    }
+
+    private static Vector2 Clamp01(Vector2 value)
+    {
+        return new Vector2(Mathf.Clamp01(value.x), Mathf.Clamp01(value.y));
+    }
+
+    private void ResetPoseFilters()
+    {
+        hasFilteredPoseCenter = false;
+        for (int i = 0; i < hasFilteredLandmarkScreenPoints.Length; i++)
+        {
+            ResetLandmarkFilter(i);
+        }
+    }
+
+    private void ResetLandmarkFilter(int landmarkIndex)
+    {
+        if (landmarkIndex < 0 || landmarkIndex >= LandmarkFilterCapacity)
+            return;
+
+        hasFilteredLandmarkScreenPoints[landmarkIndex] = false;
+        filteredLandmarkScreenPointFrames[landmarkIndex] = -1;
     }
 
     private void UpdateLeonardAvatar()
@@ -1341,11 +1434,12 @@ public class ObjectFlowManager : MonoBehaviour
         touchX = Mathf.Clamp01(position);
         touchSection = GetTouchSection(touchX);
         reason = "";
+        float touchThreshold = GetTouchThreshold();
 
         if (!useWristTouchDetection)
         {
-            bool isTouching = depth >= screenTouchLine;
-            reason = $"depth={depth:F3}, touchX={touchX:F3}, section={touchSection}, touchLine={screenTouchLine:F3}";
+            bool isTouching = depth >= touchThreshold;
+            reason = $"depth={depth:F3}, touchX={touchX:F3}, section={touchSection}, touchLine={screenTouchLine:F3}, threshold={touchThreshold:F3}";
             return isTouching;
         }
 
@@ -1354,22 +1448,22 @@ public class ObjectFlowManager : MonoBehaviour
         if (poseData == null || poseData.landmarks == null)
             return false;
 
-        bool hasLeftWrist = TryGetVisibleLandmark(poseData, LeftWristIndex, out Landmark leftWrist);
-        bool hasRightWrist = TryGetVisibleLandmark(poseData, RightWristIndex, out Landmark rightWrist);
-        bool leftTouch = hasLeftWrist && leftWrist.y >= screenTouchLine;
-        bool rightTouch = hasRightWrist && rightWrist.y >= screenTouchLine;
+        bool hasLeftWrist = TryGetFilteredLandmarkScreenPoint(poseData, LeftWristIndex, out Vector2 leftWristPoint, out Landmark leftWrist);
+        bool hasRightWrist = TryGetFilteredLandmarkScreenPoint(poseData, RightWristIndex, out Vector2 rightWristPoint, out Landmark rightWrist);
+        bool leftTouch = hasLeftWrist && leftWristPoint.y >= touchThreshold;
+        bool rightTouch = hasRightWrist && rightWristPoint.y >= touchThreshold;
 
         if (leftTouch || rightTouch)
         {
-            touchX = GetTouchX(leftWrist, leftTouch, rightWrist, rightTouch);
+            touchX = GetTouchX(leftWristPoint, leftTouch, rightWristPoint, rightTouch);
             touchSection = GetTouchSection(touchX);
-            reason = $"{FormatWrist("left", leftWrist, leftTouch)} {FormatWrist("right", rightWrist, rightTouch)} touchX={touchX:F3}, section={touchSection}, touchLine={screenTouchLine:F3}";
+            reason = $"{FormatWrist("left", leftWrist, leftWristPoint, leftTouch)} {FormatWrist("right", rightWrist, rightWristPoint, rightTouch)} touchX={touchX:F3}, section={touchSection}, touchLine={screenTouchLine:F3}, threshold={touchThreshold:F3}";
             return true;
         }
 
         if (logWristTouchDebug && Time.unscaledTime >= nextWristSampleLogTime)
         {
-            Debug.Log($"[ObjectFlowManager] Wrist sample {FormatWrist("left", leftWrist, false)} {FormatWrist("right", rightWrist, false)} touchLine={screenTouchLine:F3}");
+            Debug.Log($"[ObjectFlowManager] Wrist sample {FormatWrist("left", leftWrist, leftWristPoint, false)} {FormatWrist("right", rightWrist, rightWristPoint, false)} touchLine={screenTouchLine:F3}, threshold={touchThreshold:F3}");
             nextWristSampleLogTime = Time.unscaledTime + Mathf.Max(0.1f, wristSampleLogInterval);
         }
 
@@ -1386,35 +1480,62 @@ public class ObjectFlowManager : MonoBehaviour
         return landmark != null && (landmark.visibility <= 0f || landmark.visibility >= wristVisibilityThreshold);
     }
 
-    private string FormatWrist(string label, Landmark wrist, bool touching)
+    private bool TryGetFilteredLandmarkScreenPoint(PoseData poseData, int index, out Vector2 screenPoint, out Landmark landmark)
+    {
+        screenPoint = Vector2.zero;
+        if (!TryGetVisibleLandmark(poseData, index, out landmark))
+        {
+            ResetLandmarkFilter(index);
+            return false;
+        }
+
+        screenPoint = FilterLandmarkScreenPoint(index, GetRawPoseScreenPoint(landmark));
+        return true;
+    }
+
+    private float GetTouchThreshold()
+    {
+        float hysteresis = Mathf.Clamp(touchLineHysteresis, 0f, 0.1f);
+        return wasWristTouching ? screenTouchLine - hysteresis : screenTouchLine + hysteresis;
+    }
+
+    private string FormatWrist(string label, Landmark wrist, Vector2 screenPoint, bool touching)
     {
         if (wrist == null)
             return $"{label}=missing";
 
-        return $"{label}(x={GetPoseScreenX(wrist):F3}, y={wrist.y:F3}, visibility={wrist.visibility:F3}, touching={touching})";
+        return $"{label}(x={screenPoint.x:F3}, y={screenPoint.y:F3}, rawX={GetRawPoseScreenX(wrist):F3}, rawY={wrist.y:F3}, visibility={wrist.visibility:F3}, touching={touching})";
     }
 
-    private float GetTouchX(Landmark leftWrist, bool leftTouch, Landmark rightWrist, bool rightTouch)
+    private float GetTouchX(Vector2 leftWristPoint, bool leftTouch, Vector2 rightWristPoint, bool rightTouch)
     {
         float touchXSum = 0f;
         int touchCount = 0;
 
         if (leftTouch)
         {
-            touchXSum += GetPoseScreenX(leftWrist);
+            touchXSum += leftWristPoint.x;
             touchCount++;
         }
 
         if (rightTouch)
         {
-            touchXSum += GetPoseScreenX(rightWrist);
+            touchXSum += rightWristPoint.x;
             touchCount++;
         }
 
         return touchCount > 0 ? Mathf.Clamp01(touchXSum / touchCount) : Mathf.Clamp01(position);
     }
 
-    private float GetPoseScreenX(Landmark landmark)
+    private Vector2 GetRawPoseScreenPoint(Landmark landmark)
+    {
+        if (landmark == null)
+            return new Vector2(Mathf.Clamp01(position), Mathf.Clamp01(depth));
+
+        return new Vector2(GetRawPoseScreenX(landmark), Mathf.Clamp01(landmark.y));
+    }
+
+    private float GetRawPoseScreenX(Landmark landmark)
     {
         if (landmark == null)
             return Mathf.Clamp01(position);
@@ -1522,21 +1643,15 @@ public class ObjectFlowManager : MonoBehaviour
         if (poseData == null || poseData.landmarks == null)
             return false;
 
-        if (!TryGetVisibleLandmark(poseData, LeftWristIndex, out Landmark leftWrist))
+        if (!TryGetFilteredLandmarkScreenPoint(poseData, LeftWristIndex, out Vector2 leftWristPoint, out _))
             return false;
 
-        if (!TryGetVisibleLandmark(poseData, RightWristIndex, out Landmark rightWrist))
+        if (!TryGetFilteredLandmarkScreenPoint(poseData, RightWristIndex, out Vector2 rightWristPoint, out _))
             return false;
 
-        leftWristControl = GetManipulationControlPoint(leftWrist);
-        rightWristControl = GetManipulationControlPoint(rightWrist);
+        leftWristControl = leftWristPoint;
+        rightWristControl = rightWristPoint;
         return true;
-    }
-
-    private Vector2 GetManipulationControlPoint(Landmark landmark)
-    {
-        float x = mirrorPoseX ? 1f - landmark.x : landmark.x;
-        return new Vector2(x, landmark.y);
     }
 
     private void ResetTwoHandManipulation()
