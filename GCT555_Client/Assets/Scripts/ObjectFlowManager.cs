@@ -2212,8 +2212,10 @@ public class ObjectFlowManager : MonoBehaviour
         detailModalAccentImage.raycastTarget = false;
 
         detailModalTitleLabel = CreateDetailModalUiLabel("DetailModalTitle", detailModalRect, detailModalTitleCharacterSize, FontStyle.Bold, detailModalTextColor);
+        ConfigureDetailModalTitleLabel(detailModalTitleLabel);
         detailModalSubtitleLabel = CreateDetailModalUiLabel("DetailModalSubtitle", detailModalRect, detailModalBodyCharacterSize, FontStyle.Normal, detailModalMutedTextColor);
         detailModalBodyLabel = CreateDetailModalUiLabel("DetailModalBody", detailModalRect, detailModalBodyCharacterSize, FontStyle.Normal, detailModalTextColor);
+        ConfigureDetailModalBodyLabel(detailModalBodyLabel);
         detailModalFooterLabel = CreateDetailModalUiLabel("DetailModalFooter", detailModalRect, detailModalFooterCharacterSize, FontStyle.Normal, detailModalAccentColor);
         SetDetailModalActive(false);
     }
@@ -2243,6 +2245,24 @@ public class ObjectFlowManager : MonoBehaviour
         label.raycastTarget = false;
         label.color = color;
         return label;
+    }
+
+    private void ConfigureDetailModalTitleLabel(Text label)
+    {
+        if (label == null)
+            return;
+
+        label.resizeTextForBestFit = false;
+        label.fontSize = Mathf.Clamp(GetDetailModalFontSize(detailModalTitleCharacterSize), 20, 30);
+        label.lineSpacing = 0.95f;
+    }
+
+    private void ConfigureDetailModalBodyLabel(Text label)
+    {
+        if (label == null)
+            return;
+
+        label.supportRichText = true;
     }
 
     private Font GetDetailModalFont()
@@ -2322,13 +2342,25 @@ public class ObjectFlowManager : MonoBehaviour
         if (detailModalRect == null)
             return;
 
+        MuseumArtifactInfo artifactInfo = GetSelectedMuseumArtifactInfo();
+        bool useMuseumLayout = ShouldUseMuseumDetailLayout(artifactInfo);
         float panelWidth = Mathf.Max(1f, Screen.width * (detailModalRect.anchorMax.x - detailModalRect.anchorMin.x));
         float panelHeight = Mathf.Max(1f, Screen.height * (detailModalRect.anchorMax.y - detailModalRect.anchorMin.y));
         float padding = Mathf.Min(panelWidth, panelHeight) * Mathf.Clamp(detailModalPaddingRatio, 0.04f, 0.2f);
+        if (useMuseumLayout)
+        {
+            SetRectOffsets(detailModalTitleLabel != null ? detailModalTitleLabel.rectTransform : null, padding, padding, padding, panelHeight - padding);
+            SetRectOffsets(detailModalSubtitleLabel != null ? detailModalSubtitleLabel.rectTransform : null, padding, padding, padding, panelHeight - padding);
+            SetRectOffsets(detailModalBodyLabel != null ? detailModalBodyLabel.rectTransform : null, padding, padding, padding, padding);
+            SetRectOffsets(detailModalFooterLabel != null ? detailModalFooterLabel.rectTransform : null, padding, panelHeight - padding, padding, padding);
+            return;
+        }
+
         float titleHeight = panelHeight * 0.2f;
         float footerHeight = panelHeight * 0.1f;
-        float bodyTop = padding + titleHeight + panelHeight * 0.03f;
-        float bodyBottom = padding;
+        float contentGap = panelHeight * 0.03f;
+        float bodyTop = padding + titleHeight + contentGap;
+        float bodyBottom = padding + footerHeight + contentGap;
 
         SetRectOffsets(detailModalTitleLabel != null ? detailModalTitleLabel.rectTransform : null, padding, padding, padding, panelHeight - padding - titleHeight);
         SetRectOffsets(detailModalSubtitleLabel != null ? detailModalSubtitleLabel.rectTransform : null, padding, padding + titleHeight * 0.64f, padding, panelHeight - padding - titleHeight);
@@ -2352,7 +2384,7 @@ public class ObjectFlowManager : MonoBehaviour
     {
         int infoIndex = Mathf.Abs(selectedIndex) % DetailTitles.Length;
         MuseumArtifactInfo artifactInfo = GetSelectedMuseumArtifactInfo();
-        bool useMuseumLayout = detailModalMinimalMuseumLayout && artifactInfo != null && HasText(artifactInfo.description);
+        bool useMuseumLayout = ShouldUseMuseumDetailLayout(artifactInfo);
 
         if (detailModalBodyLabel != null)
         {
@@ -2361,17 +2393,42 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (useMuseumLayout)
         {
+            SetUiLabelActive(detailModalTitleLabel, false);
             SetUiLabelActive(detailModalSubtitleLabel, false);
             SetUiLabelActive(detailModalFooterLabel, false);
-            SetUiLabel(detailModalTitleLabel, GetDetailTitle(artifactInfo, infoIndex), detailModalTextColor);
-            SetUiLabel(detailModalBodyLabel, BuildMuseumDescriptionText(artifactInfo), detailModalTextColor);
+            SetUiLabel(detailModalBodyLabel, BuildMuseumDetailText(artifactInfo, infoIndex), detailModalTextColor);
             return;
         }
 
         SetUiLabel(detailModalTitleLabel, GetDetailTitle(artifactInfo, infoIndex), detailModalTextColor);
-        SetUiLabel(detailModalSubtitleLabel, GetDetailSubtitle(artifactInfo, infoIndex), detailModalMutedTextColor);
         SetUiLabel(detailModalBodyLabel, BuildDetailModalBody(artifactInfo, infoIndex), detailModalTextColor);
         SetUiLabel(detailModalFooterLabel, "More Info", detailModalAccentColor);
+    }
+
+    private bool ShouldUseMuseumDetailLayout(MuseumArtifactInfo artifactInfo)
+    {
+        return detailModalMinimalMuseumLayout && artifactInfo != null && HasText(artifactInfo.description);
+    }
+
+    private string BuildMuseumDetailText(MuseumArtifactInfo artifactInfo, int fallbackIndex)
+    {
+        string title = GetDetailTitle(artifactInfo, fallbackIndex);
+        string description = BuildMuseumDescriptionText(artifactInfo);
+        int titleSize = Mathf.Clamp(GetDetailModalFontSize(detailModalTitleCharacterSize), 20, 30);
+        string text = $"<b><size={titleSize}>{EscapeRichText(title)}</size></b>";
+
+        if (HasText(description))
+            text += "\n\n" + EscapeRichText(description);
+
+        return text;
+    }
+
+    private static string EscapeRichText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+
+        return text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
     }
 
     private string BuildDetailModalBody(MuseumArtifactInfo artifactInfo, int infoIndex)

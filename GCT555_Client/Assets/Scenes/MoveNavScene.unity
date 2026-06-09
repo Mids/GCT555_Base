@@ -922,7 +922,7 @@ MonoBehaviour:
   globalDepthScale: 3
   globalPositionOffset: {x: 0, y: 0, z: -4}
   globalInvertDepth: 0
-  globalInputSourceUpsideDown: 1
+  globalInputSourceUpsideDown: 0
   globalInputSourceHorizontalPadding: 0.2
   landmarkPrefab: {fileID: 5742732458933112038, guid: ab0a6df3ade541648b875eb0edd894d2, type: 3}
 --- !u!4 &1405606664
@@ -1063,6 +1063,10 @@ MonoBehaviour:
   manipulationRollMultiplier: 1
   manipulationSmoothing: 12
   logTwoHandManipulationDebug: 1
+  showIntroBackButton: 1
+  introSceneName: IntroScene
+  introBackButtonPosition: {x: 12, y: 12}
+  introBackButtonSize: {x: 76, y: 30}
   showDebugLines: 1
   debugLineLength: 8
   debugLineZ: 2
