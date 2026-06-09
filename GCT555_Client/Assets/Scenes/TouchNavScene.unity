@@ -865,6 +865,8 @@ MonoBehaviour:
   globalDepthScale: 3
   globalPositionOffset: {x: 0, y: 0, z: -4}
   globalInvertDepth: 0
+  globalInputSourceUpsideDown: 1
+  globalInputSourceHorizontalPadding: 0.2
   landmarkPrefab: {fileID: 5742732458933112038, guid: ab0a6df3ade541648b875eb0edd894d2, type: 3}
 --- !u!4 &1405606664
 Transform:
@@ -954,6 +956,7 @@ MonoBehaviour:
   - {fileID: 7798774404994564241, guid: ea4ff4376e25846e9ae0a32155f8dad2, type: 3}
   museumArtifactData: {fileID: 4900000, guid: 77b714114128d5043b07c6505f0adc34, type: 3}
   artifactNormalizedSize: 1
+  artifactYawOffsetDegrees: 180
   showArtifactStands: 1
   artifactStandFloorY: -0.5
   artifactStandFootprint: {x: 0.4, y: 0.4}
@@ -966,7 +969,7 @@ MonoBehaviour:
   streamManager: {fileID: 1405606663}
   driveFromPose: 1
   mirrorPoseX: 0
-  topIsDepthOne: 0
+  topIsDepthOne: 1
   poseFollowSpeed: 8
   poseLostTimeout: 1
   usePoseCenterSmoothing: 1

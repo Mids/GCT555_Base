@@ -37,6 +37,9 @@ public class StreamManager : MonoBehaviour
     public float globalDepthScale = 2.0f; // Scale for distance estimation
     public Vector3 globalPositionOffset = new Vector3(0, 0, -0.2f);
     public bool globalInvertDepth = false;
+    public bool globalInputSourceUpsideDown = false;
+    [Range(0f, 0.45f)]
+    public float globalInputSourceHorizontalPadding = 0f;
 
     [Header("Prefabs")]
     public GameObject landmarkPrefab;
@@ -77,6 +80,7 @@ public class StreamManager : MonoBehaviour
         
         // Set snapshot URL based on the selected web port
         display.snapshotUrl = $"http://{config.ipAddress}:{webPort}/snapshot";
+        display.inputSourceUpsideDown = globalInputSourceUpsideDown;
 
         // Create only the selected client
         CreateClient(config, config.activeType, socketPort, display);
@@ -104,6 +108,8 @@ public class StreamManager : MonoBehaviour
         client.depthScale = globalDepthScale;
         client.positionOffset = globalPositionOffset;
         client.invertDepth = globalInvertDepth;
+        client.inputSourceUpsideDown = globalInputSourceUpsideDown;
+        client.inputSourceHorizontalPadding = globalInputSourceHorizontalPadding;
         
         activeClients.Add(client);
     }

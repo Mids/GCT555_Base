@@ -43,6 +43,11 @@ public class StreamClient : MonoBehaviour
     // Mirrors X coordinates horizontally.
     // Keep this on for webcam-style mirror behavior.
     // Turn it off if you want true camera-space left/right behavior.
+    public bool inputSourceUpsideDown = false;
+    // Rotates normalized input coordinates by 180 degrees before consumers read them.
+    [Range(0f, 0.45f)]
+    public float inputSourceHorizontalPadding = 0f;
+    // Treats left/right source margins as padding and remaps the center area to 0..1.
     public Transform visualizationRoot; 
     public QuadDisplay quadDisplay;
 
@@ -171,6 +176,7 @@ public class StreamClient : MonoBehaviour
                     PoseData pose = JsonUtility.FromJson<PoseData>(json);
                     if (pose != null)
                     {
+                        ApplyInputOrientation(pose.landmarks);
                         latestPoseData = pose;
                         //--------------------------
                         // Reverting to Hybrid/Normalized Visuals
@@ -254,6 +260,7 @@ public class StreamClient : MonoBehaviour
                         mergedDepth.global_z = (globalZCount > 0) ? (globalZSum / globalZCount) : 0f;
                         mergedDepth.per_landmark_z = allDepthZ;
 
+                        ApplyInputOrientation(allNorm);
                         UpdateHybridVisuals(allNorm, allWorld, mergedDepth);
                     }
                     break;
@@ -310,6 +317,7 @@ public class StreamClient : MonoBehaviour
                         mergedDepth.global_z = (globalZCount > 0) ? (globalZSum / globalZCount) : 0f;
                         mergedDepth.per_landmark_z = allDepthZ;
 
+                        ApplyInputOrientation(allFaces);
                         UpdateHybridVisuals(allFaces, null, mergedDepth);
                     }
                     break;
@@ -317,6 +325,36 @@ public class StreamClient : MonoBehaviour
             }
         }
         catch (Exception e) { Debug.LogError($"JSON Parse Error: {e.Message}"); }
+    }
+
+    private void ApplyInputOrientation(List<Landmark> landmarks)
+    {
+        if (landmarks == null)
+            return;
+
+        float horizontalPadding = Mathf.Clamp(inputSourceHorizontalPadding, 0f, 0.45f);
+        bool hasHorizontalPadding = horizontalPadding > 0.0001f;
+        if (!inputSourceUpsideDown && !hasHorizontalPadding)
+            return;
+
+        float activeWidth = 1f - horizontalPadding * 2f;
+        for (int i = 0; i < landmarks.Count; i++)
+        {
+            Landmark landmark = landmarks[i];
+            if (landmark == null)
+                continue;
+
+            if (inputSourceUpsideDown)
+            {
+                landmark.x = 1f - landmark.x;
+                landmark.y = 1f - landmark.y;
+            }
+
+            if (hasHorizontalPadding)
+            {
+                landmark.x = Mathf.Clamp01((landmark.x - horizontalPadding) / activeWidth);
+            }
+        }
     }
 
     //--------------------------------------

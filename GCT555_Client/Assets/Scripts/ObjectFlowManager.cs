@@ -463,7 +463,7 @@ public class ObjectFlowManager : MonoBehaviour
             return userEventLogPath;
 
         string safeDirectoryName = string.IsNullOrEmpty(userEventLogDirectoryName) ? "UserEventLogs" : userEventLogDirectoryName;
-        string safeFileName = string.IsNullOrEmpty(userEventLogFileName) ? "user_events.tsv" : userEventLogFileName;
+        string safeFileName = BuildTimestampedUserEventLogFileName(userEventLogFileName, DateTime.Now);
         string logDirectory = Path.Combine(Application.persistentDataPath, safeDirectoryName);
         Directory.CreateDirectory(logDirectory);
         userEventLogPath = Path.Combine(logDirectory, safeFileName);
@@ -476,6 +476,24 @@ public class ObjectFlowManager : MonoBehaviour
         didInitializeUserEventLog = true;
         Debug.Log($"[ObjectFlowManager] User event log file: {userEventLogPath}");
         return userEventLogPath;
+    }
+
+    private static string BuildTimestampedUserEventLogFileName(string baseFileName, DateTime startTime)
+    {
+        string safeBaseFileName = string.IsNullOrEmpty(baseFileName) ? "user_events.tsv" : baseFileName;
+        string directory = Path.GetDirectoryName(safeBaseFileName);
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(safeBaseFileName);
+        string extension = Path.GetExtension(safeBaseFileName);
+
+        if (string.IsNullOrEmpty(fileNameWithoutExtension))
+            fileNameWithoutExtension = "user_events";
+
+        if (string.IsNullOrEmpty(extension))
+            extension = ".tsv";
+
+        string timestamp = startTime.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
+        string timestampedFileName = $"{fileNameWithoutExtension}_{timestamp}{extension}";
+        return string.IsNullOrEmpty(directory) ? timestampedFileName : Path.Combine(directory, timestampedFileName);
     }
 
     private static string SanitizeLogValue(string value)
