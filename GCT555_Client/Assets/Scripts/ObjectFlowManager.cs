@@ -136,6 +136,12 @@ public class ObjectFlowManager : MonoBehaviour
     public float manipulationSmoothing = 12f;
     public bool logTwoHandManipulationDebug = true;
 
+    [Header("Navigation UI")]
+    public bool showIntroBackButton = true;
+    public string introSceneName = "IntroScene";
+    public Vector2 introBackButtonPosition = new Vector2(12f, 12f);
+    public Vector2 introBackButtonSize = new Vector2(76f, 30f);
+
     [Header("Debug Lines")]
     public bool showDebugLines = true;
     public float debugLineLength = 8f;
@@ -332,6 +338,7 @@ public class ObjectFlowManager : MonoBehaviour
     private float selectedPitchOffset;
     private float selectedRollOffset;
     private MaterialPropertyBlock selectionPropertyBlock;
+    private GUIStyle introBackButtonStyle;
 
     private void Awake()
     {
@@ -358,6 +365,50 @@ public class ObjectFlowManager : MonoBehaviour
         UpdateModeLabels();
         UpdateDetailModal();
         UpdateDebugLines();
+    }
+
+    private void OnGUI()
+    {
+        if (!showIntroBackButton)
+            return;
+
+        EnsureIntroBackButtonStyle();
+        Rect buttonRect = new Rect(
+            introBackButtonPosition.x,
+            introBackButtonPosition.y,
+            introBackButtonSize.x,
+            introBackButtonSize.y);
+
+        if (GUI.Button(buttonRect, "Back", introBackButtonStyle))
+        {
+            ReturnToIntroScene();
+        }
+    }
+
+    private void EnsureIntroBackButtonStyle()
+    {
+        if (introBackButtonStyle != null)
+            return;
+
+        introBackButtonStyle = new GUIStyle(GUI.skin.button)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 14,
+            fontStyle = FontStyle.Bold,
+            padding = new RectOffset(8, 8, 4, 4)
+        };
+    }
+
+    private void ReturnToIntroScene()
+    {
+        if (string.IsNullOrEmpty(introSceneName))
+        {
+            Debug.LogError("[ObjectFlowManager] Intro scene name is empty.");
+            return;
+        }
+
+        LogUserEvent("intro_back_clicked", $"target_scene={introSceneName}");
+        SceneManager.LoadScene(introSceneName);
     }
 
     private void OnDestroy()
