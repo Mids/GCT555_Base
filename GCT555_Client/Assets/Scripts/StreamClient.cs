@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -15,6 +16,10 @@ public class StreamClient : MonoBehaviour
     public int port = 5050;
     public ClientType clientType;
     public bool autoConnect = true;
+    public bool autoReconnect = true;
+    public float reconnectDelay = 1.5f;
+    public float connectTimeoutSeconds = 1f;
+    public int readTimeoutMilliseconds = 2000;
 
     [Header("Visualization")]
     public GameObject landmarkPrefab;
@@ -77,9 +82,11 @@ public class StreamClient : MonoBehaviour
     private TcpClient socket;
     private NetworkStream stream;
     private Thread receiveThread;
-    private bool isRunning = false;
-    private bool dataReceived = false;
+    private volatile bool isRunning = false;
+    private volatile bool dataReceived = false;
+    private volatile bool connectionClosedByThread = false;
     private string latestJsonData = "";
+    private float nextReconnectTime;
     private List<GameObject> spawnedLandmarks = new List<GameObject>();
     public List<Landmark> activeLandmarks;
     public PoseData latestPoseData;
@@ -101,24 +108,40 @@ public class StreamClient : MonoBehaviour
         if (isRunning) return;
         try
         {
+            CloseNetworkResources();
             socket = new TcpClient();
-            socket.Connect(ipAddress, port);
+            IAsyncResult connectResult = socket.BeginConnect(ipAddress, port, null, null);
+            bool didConnect = connectResult.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(Mathf.Max(0.1f, connectTimeoutSeconds)));
+            if (!didConnect)
+                throw new TimeoutException($"Timed out connecting to {ipAddress}:{port}");
+
+            socket.EndConnect(connectResult);
+            socket.NoDelay = true;
             stream = socket.GetStream();
+            stream.ReadTimeout = Mathf.Max(100, readTimeoutMilliseconds);
             isRunning = true;
+            connectionClosedByThread = false;
             receiveThread = new Thread(ReceiveData);
             receiveThread.IsBackground = true;
             receiveThread.Start();
             Debug.Log($"[{clientType}] Connected to {ipAddress}:{port}");
         }
-        catch (Exception e) { Debug.LogError($"[{clientType}] Connection Error: {e.Message}"); }
+        catch (Exception e)
+        {
+            isRunning = false;
+            CloseNetworkResources();
+            nextReconnectTime = Time.unscaledTime + Mathf.Max(0.1f, reconnectDelay);
+            Debug.LogWarning($"[{clientType}] Connection failed: {e.Message}. Retrying in {Mathf.Max(0.1f, reconnectDelay):F1}s.");
+        }
     }
 
     public void Disconnect()
     {
         isRunning = false;
-        if (receiveThread != null && receiveThread.IsAlive) receiveThread.Join(100);
-        if (stream != null) stream.Close();
-        if (socket != null) socket.Close();
+        CloseNetworkResources();
+        if (receiveThread != null && receiveThread.IsAlive) receiveThread.Join(250);
+        receiveThread = null;
+        connectionClosedByThread = false;
     }
 
     private void ReceiveData()
@@ -130,38 +153,94 @@ public class StreamClient : MonoBehaviour
         {
             try
             {
-                if (stream.DataAvailable)
-                {
-                    int bytesRead = stream.Read(buffer, 0, buffer.Length);
-                    string chunk = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    jsonBuilder.Append(chunk);
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                if (bytesRead <= 0)
+                    break;
 
-                    string currentStr = jsonBuilder.ToString();
-                    int newlineIndex;
-                    while ((newlineIndex = currentStr.IndexOf('\n')) != -1)
-                    {
-                        string jsonLine = currentStr.Substring(0, newlineIndex);
-                        latestJsonData = jsonLine;
-                        dataReceived = true;
-                        currentStr = currentStr.Substring(newlineIndex + 1);
-                    }
-                    jsonBuilder.Clear();
-                    jsonBuilder.Append(currentStr);
+                string chunk = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                jsonBuilder.Append(chunk);
+
+                string currentStr = jsonBuilder.ToString();
+                int newlineIndex;
+                while ((newlineIndex = currentStr.IndexOf('\n')) != -1)
+                {
+                    string jsonLine = currentStr.Substring(0, newlineIndex);
+                    latestJsonData = jsonLine;
+                    dataReceived = true;
+                    currentStr = currentStr.Substring(newlineIndex + 1);
                 }
-                else
-                    Thread.Sleep(100);
+                jsonBuilder.Clear();
+                jsonBuilder.Append(currentStr);
             }
-            catch (Exception) { isRunning = false; }
+            catch (IOException exception)
+            {
+                if (IsReadTimeout(exception))
+                    continue;
+
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (Exception)
+            {
+                break;
+            }
         }
+
+        isRunning = false;
+        connectionClosedByThread = true;
     }
 
     void Update()
     {
+        UpdateConnectionState();
+
         if (dataReceived)
         {
             dataReceived = false;
             ProcessData(latestJsonData);
         }
+    }
+
+    private void UpdateConnectionState()
+    {
+        if (connectionClosedByThread)
+        {
+            connectionClosedByThread = false;
+            CloseNetworkResources();
+            nextReconnectTime = Time.unscaledTime + Mathf.Max(0.1f, reconnectDelay);
+            Debug.LogWarning($"[{clientType}] Connection closed. Reconnecting in {Mathf.Max(0.1f, reconnectDelay):F1}s.");
+        }
+
+        if (!autoConnect || !autoReconnect || isRunning || Time.unscaledTime < nextReconnectTime)
+            return;
+
+        Connect();
+    }
+
+    private void CloseNetworkResources()
+    {
+        if (stream != null)
+        {
+            try { stream.Close(); }
+            catch { }
+            stream = null;
+        }
+
+        if (socket != null)
+        {
+            try { socket.Close(); }
+            catch { }
+            socket = null;
+        }
+    }
+
+    private static bool IsReadTimeout(IOException exception)
+    {
+        SocketException socketException = exception.InnerException as SocketException;
+        return socketException != null && socketException.SocketErrorCode == SocketError.TimedOut;
     }
 
     private void ProcessData(string json)

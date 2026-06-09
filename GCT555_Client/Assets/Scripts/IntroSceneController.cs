@@ -53,8 +53,6 @@ public class IntroSceneController : MonoBehaviour
         }
 
         GUILayout.Space(26f);
-        GUILayout.Label("Selected Artifact Numbers (1-18)", indexLabelStyle);
-        GUILayout.Space(8f);
         DrawArtifactIndexRow();
 
         GUILayout.EndArea();

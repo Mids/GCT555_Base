@@ -81,55 +81,86 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 def socket_server_thread():
     """Handles the socket connection to Unity."""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket = None
+    client_addr = None
     try:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind((SOCKET_HOST, SOCKET_PORT))
-        server_socket.listen(1)
+        server_socket.listen(5)
+        server_socket.setblocking(False)
         print(f"[Socket] Listening on {SOCKET_HOST}:{SOCKET_PORT}")
 
         while True:
-            client_socket, addr = server_socket.accept()
-            print(f"[Socket] Connected by {addr}")
             try:
                 while True:
-                    global current_landmarks_result, current_face_result
-                    data_to_send = None
+                    new_client_socket, new_addr = server_socket.accept()
+                    new_client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    new_client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    new_client_socket.settimeout(1.0)
 
-                    with lock:
-                        if current_landmarks_result and current_landmarks_result.pose_landmarks:
-                            pose_payload = build_pose_payload(
-                                current_landmarks_result, depth_state,
-                                pose_index=0,
-                                face_result=current_face_result,
-                            )
-                            if pose_payload is not None:
-                                ## DEBUG: print depth info
-                                #d = pose_payload.get('depth', {})
-                                #plz = d.get('per_landmark_z', [])
-                                #raw_tz = "N/A"
-                                #if current_face_result is not None:
-                                #    mats = getattr(current_face_result, 'facial_transformation_matrixes', None)
-                                #    if mats and len(mats) > 0:
-                                #        M = np.array(mats[0]).reshape(4,4)
-                                #        raw_tz = f"{float(M[2,3]):.2f}"
-                                #if plz:
-                                #    print(f"[Depth] mode={d.get('mode')} raw_tz={raw_tz} global_z={d.get('global_z'):.4f} "
-                                #          f"per_z min={min(plz):.4f} max={max(plz):.4f} spread={max(plz)-min(plz):.4f}")
-                                data_to_send = json.dumps(pose_payload)
-                    
-                    if data_to_send:
-                        # Send data followed by a newline as a delimiter
-                        client_socket.sendall((data_to_send + "\n").encode('utf-8'))
-                    
-                    # Sleep briefly to match typical frame rate
-                    time.sleep(0.033) 
-            except (ConnectionResetError, BrokenPipeError):
-                print(f"[Socket] Disconnected from {addr}")
-            finally:
-                client_socket.close()
+                    if client_socket is not None:
+                        print(f"[Socket] Replacing stale client {client_addr} with {new_addr}")
+                        try:
+                            client_socket.close()
+                        except OSError:
+                            pass
+
+                    client_socket = new_client_socket
+                    client_addr = new_addr
+                    print(f"[Socket] Connected by {client_addr}")
+            except BlockingIOError:
+                pass
+
+            if client_socket is None:
+                time.sleep(0.033)
+                continue
+
+            global current_landmarks_result, current_face_result
+            data_to_send = None
+
+            with lock:
+                if current_landmarks_result and current_landmarks_result.pose_landmarks:
+                    pose_payload = build_pose_payload(
+                        current_landmarks_result, depth_state,
+                        pose_index=0,
+                        face_result=current_face_result,
+                    )
+                    if pose_payload is not None:
+                        ## DEBUG: print depth info
+                        #d = pose_payload.get('depth', {})
+                        #plz = d.get('per_landmark_z', [])
+                        #raw_tz = "N/A"
+                        #if current_face_result is not None:
+                        #    mats = getattr(current_face_result, 'facial_transformation_matrixes', None)
+                        #    if mats and len(mats) > 0:
+                        #        M = np.array(mats[0]).reshape(4,4)
+                        #        raw_tz = f"{float(M[2,3]):.2f}"
+                        #if plz:
+                        #    print(f"[Depth] mode={d.get('mode')} raw_tz={raw_tz} global_z={d.get('global_z'):.4f} "
+                        #          f"per_z min={min(plz):.4f} max={max(plz):.4f} spread={max(plz)-min(plz):.4f}")
+                        data_to_send = json.dumps(pose_payload)
+
+            if data_to_send:
+                try:
+                    # Send data followed by a newline as a delimiter
+                    client_socket.sendall((data_to_send + "\n").encode('utf-8'))
+                except (ConnectionResetError, BrokenPipeError, OSError, socket.timeout):
+                    print(f"[Socket] Disconnected from {client_addr}")
+                    try:
+                        client_socket.close()
+                    except OSError:
+                        pass
+                    client_socket = None
+                    client_addr = None
+
+            # Sleep briefly to match typical frame rate
+            time.sleep(0.033)
 
     except Exception as e:
         print(f"[Socket] Server Error: {e}")
     finally:
+        if client_socket is not None:
+            client_socket.close()
         server_socket.close()
 
 def generate_frames():
