@@ -570,6 +570,9 @@ public class ObjectFlowManager : MonoBehaviour
         if (availableCount == 0)
             return null;
 
+        if (TryPickPlannedFinalArtifactPrefabs(out SelectedArtifactPrefab[] plannedPrefabs))
+            return plannedPrefabs;
+
         SelectedArtifactPrefab[] pool = new SelectedArtifactPrefab[availableCount];
         int poolIndex = 0;
         for (int i = 0; i < finalArtifactPrefabs.Length; i++)
@@ -596,6 +599,34 @@ public class ObjectFlowManager : MonoBehaviour
         }
 
         return selectedPrefabs;
+    }
+
+    private bool TryPickPlannedFinalArtifactPrefabs(out SelectedArtifactPrefab[] selectedPrefabs)
+    {
+        selectedPrefabs = null;
+        if (!ArtifactSelectionPlan.TryLoadArtifactIds(out int[] artifactIds))
+            return false;
+
+        if (finalArtifactPrefabs == null || artifactIds.Length < ObjectCount)
+            return false;
+
+        SelectedArtifactPrefab[] plannedPrefabs = new SelectedArtifactPrefab[ObjectCount];
+        for (int i = 0; i < ObjectCount; i++)
+        {
+            int artifactId = artifactIds[i];
+            int prefabIndex = artifactId - 1;
+            if (prefabIndex < 0 || prefabIndex >= finalArtifactPrefabs.Length || finalArtifactPrefabs[prefabIndex] == null)
+                return false;
+
+            plannedPrefabs[i] = new SelectedArtifactPrefab
+            {
+                prefab = finalArtifactPrefabs[prefabIndex],
+                artifactId = artifactId
+            };
+        }
+
+        selectedPrefabs = plannedPrefabs;
+        return true;
     }
 
     private int CountValidFinalArtifactPrefabs()

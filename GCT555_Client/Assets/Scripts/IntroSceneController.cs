@@ -9,6 +9,14 @@ public class IntroSceneController : MonoBehaviour
     private GUIStyle titleStyle;
     private GUIStyle subtitleStyle;
     private GUIStyle buttonStyle;
+    private GUIStyle indexLabelStyle;
+    private GUIStyle indexNumberStyle;
+    private int[] selectedArtifactIds;
+
+    private void Awake()
+    {
+        selectedArtifactIds = ArtifactSelectionPlan.GenerateAndSaveArtifactIds();
+    }
 
     private void OnGUI()
     {
@@ -17,7 +25,7 @@ public class IntroSceneController : MonoBehaviour
         DrawSolidRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.055f, 0.06f, 0.07f, 1f));
 
         float panelWidth = Mathf.Min(760f, Screen.width - 80f);
-        float panelHeight = Mathf.Min(500f, Screen.height - 80f);
+        float panelHeight = Mathf.Min(580f, Screen.height - 80f);
         Rect panelRect = new Rect(
             (Screen.width - panelWidth) * 0.5f,
             (Screen.height - panelHeight) * 0.5f,
@@ -43,6 +51,11 @@ public class IntroSceneController : MonoBehaviour
         {
             LoadTouchNavScene();
         }
+
+        GUILayout.Space(26f);
+        GUILayout.Label("Selected Artifact Numbers (1-18)", indexLabelStyle);
+        GUILayout.Space(8f);
+        DrawArtifactIndexRow();
 
         GUILayout.EndArea();
     }
@@ -99,6 +112,40 @@ public class IntroSceneController : MonoBehaviour
             padding = new RectOffset(24, 24, 18, 18)
         };
 
+        indexLabelStyle = new GUIStyle(GUI.skin.label)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 18,
+            fontStyle = FontStyle.Bold
+        };
+        indexLabelStyle.normal.textColor = new Color(0.74f, 0.78f, 0.82f);
+
+        indexNumberStyle = new GUIStyle(GUI.skin.box)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            fontSize = 24,
+            fontStyle = FontStyle.Bold,
+            margin = new RectOffset(6, 6, 0, 0),
+            padding = new RectOffset(0, 0, 7, 7)
+        };
+        indexNumberStyle.normal.textColor = new Color(0.98f, 0.94f, 0.72f);
+    }
+
+    private void DrawArtifactIndexRow()
+    {
+        if (selectedArtifactIds == null || selectedArtifactIds.Length == 0)
+        {
+            selectedArtifactIds = ArtifactSelectionPlan.GetOrCreateArtifactIds();
+        }
+
+        GUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+        for (int i = 0; i < selectedArtifactIds.Length; i++)
+        {
+            GUILayout.Label(selectedArtifactIds[i].ToString(), indexNumberStyle, GUILayout.Width(44f), GUILayout.Height(44f));
+        }
+        GUILayout.FlexibleSpace();
+        GUILayout.EndHorizontal();
     }
 
     private static void DrawSolidRect(Rect rect, Color color)
