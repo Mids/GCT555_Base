@@ -1,4 +1,8 @@
+using System;
+using System.Globalization;
+using System.IO;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class ObjectFlowManager : MonoBehaviour
@@ -182,6 +186,12 @@ public class ObjectFlowManager : MonoBehaviour
     public int detailModalMaxDescriptionCharacters = 220;
     public bool detailModalMinimalMuseumLayout = true;
 
+    [Header("User Event Logging")]
+    public bool logUserEventsToFile = true;
+    public string userEventLogDirectoryName = "UserEventLogs";
+    public string userEventLogFileName = "user_events.tsv";
+    public float userEventManipulationLogInterval = 0.25f;
+
     private readonly GameObject[] flowObjects = new GameObject[ObjectCount];
     private readonly Renderer[][] flowRenderers = new Renderer[ObjectCount][];
     private readonly Vector3[] flowBaseScales = new Vector3[ObjectCount];
@@ -293,6 +303,9 @@ public class ObjectFlowManager : MonoBehaviour
     private Vector3 previousLeonardLocalPosition;
     private bool hasTwoHandBaseline;
     private int twoHandManipulationIndex = -1;
+    private string userEventLogPath;
+    private bool didInitializeUserEventLog;
+    private float nextManipulationUserEventLogTime;
     private float baselineWristDistance;
     private float baselineWristAngle;
     private Vector2 baselineWristMidpoint;
@@ -311,6 +324,7 @@ public class ObjectFlowManager : MonoBehaviour
         EnsureObjects();
         EnsureModeLabels();
         EnsureDetailModal();
+        LogUserEvent("session_start", $"navigation={navigationMode}; log_path={GetUserEventLogPath()}");
         UpdateLayout();
         UpdateModeLabels();
         UpdateDetailModal();
@@ -334,6 +348,8 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        LogUserEvent("session_end", $"navigation={navigationMode}");
+
         for (int i = 0; i < flowObjects.Length; i++)
         {
             if (flowObjects[i] != null)
@@ -395,7 +411,105 @@ public class ObjectFlowManager : MonoBehaviour
         {
             Destroy(detailModalRoot);
         }
+    }
 
+    private void LogUserEvent(string eventName, string details = "")
+    {
+        if (!logUserEventsToFile)
+            return;
+
+        try
+        {
+            string logPath = GetUserEventLogPath();
+            string line = string.Join("\t", new[]
+            {
+                DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                DateTime.Now.ToString("O", CultureInfo.InvariantCulture),
+                SanitizeLogValue(SceneManager.GetActiveScene().name),
+                SanitizeLogValue(eventName),
+                SanitizeLogValue(currentMode.ToString()),
+                FormatLogIndex(candidateIndex),
+                FormatLogIndex(selectedIndex),
+                position.ToString("F4", CultureInfo.InvariantCulture),
+                depth.ToString("F4", CultureInfo.InvariantCulture),
+                SanitizeLogValue(details)
+            });
+
+            File.AppendAllText(logPath, line + Environment.NewLine);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[ObjectFlowManager] Could not write user event log: {exception.Message}");
+        }
+    }
+
+    private string GetUserEventLogPath()
+    {
+        if (didInitializeUserEventLog && !string.IsNullOrEmpty(userEventLogPath))
+            return userEventLogPath;
+
+        string safeDirectoryName = string.IsNullOrEmpty(userEventLogDirectoryName) ? "UserEventLogs" : userEventLogDirectoryName;
+        string safeFileName = string.IsNullOrEmpty(userEventLogFileName) ? "user_events.tsv" : userEventLogFileName;
+        string logDirectory = Path.Combine(Application.persistentDataPath, safeDirectoryName);
+        Directory.CreateDirectory(logDirectory);
+        userEventLogPath = Path.Combine(logDirectory, safeFileName);
+
+        if (!File.Exists(userEventLogPath) || new FileInfo(userEventLogPath).Length == 0)
+        {
+            File.AppendAllText(userEventLogPath, "timestamp_utc\ttimestamp_local\tscene\tevent\tmode\tcandidate_index\tselected_index\tposition\tdepth\tdetails" + Environment.NewLine);
+        }
+
+        didInitializeUserEventLog = true;
+        Debug.Log($"[ObjectFlowManager] User event log file: {userEventLogPath}");
+        return userEventLogPath;
+    }
+
+    private static string SanitizeLogValue(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return "";
+
+        return value.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    private static string FormatLogIndex(int index)
+    {
+        return index >= 0 ? (index + 1).ToString(CultureInfo.InvariantCulture) : "";
+    }
+
+    private void SetFlowMode(FlowMode nextMode, string reason, string details = "")
+    {
+        if (currentMode == nextMode)
+            return;
+
+        FlowMode previousMode = currentMode;
+        currentMode = nextMode;
+        LogUserEvent("mode_changed", $"from={previousMode}; to={nextMode}; reason={reason}; {details}");
+    }
+
+    private void LogCandidateChanged(int previousIndex, int nextIndex, string reason, string details = "")
+    {
+        if (previousIndex == nextIndex)
+            return;
+
+        LogUserEvent("candidate_changed", $"from={FormatLogIndex(previousIndex)}; to={FormatLogIndex(nextIndex)}; reason={reason}; {GetArtifactLogDetails(nextIndex)}; {details}");
+    }
+
+    private void LogSelectionEvent(string eventName, int index, string details = "")
+    {
+        LogUserEvent(eventName, $"{GetArtifactLogDetails(index)}; {details}");
+    }
+
+    private string GetArtifactLogDetails(int index)
+    {
+        if (index < 0 || index >= flowArtifactInfos.Length)
+            return "artifact_index=";
+
+        MuseumArtifactInfo artifactInfo = flowArtifactInfos[index];
+        if (artifactInfo == null)
+            return $"artifact_index={index + 1}";
+
+        return $"artifact_index={index + 1}; artifact_id={artifactInfo.id}; title={artifactInfo.title}";
     }
 
     private void EnsureObjects()
@@ -721,12 +835,17 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void SetPoseTracking(bool isTracking)
     {
+        bool previousTracking = hasPoseTracking;
         if (!hasPoseTracking && isTracking)
         {
             poseTrackingJustRestored = true;
         }
 
         hasPoseTracking = isTracking;
+        if (previousTracking != isTracking)
+        {
+            LogUserEvent(isTracking ? "pose_tracking_restored" : "pose_tracking_lost", $"position={position:F4}; depth={depth:F4}");
+        }
     }
 
     private void UpdateLeonardAvatar()
@@ -964,7 +1083,7 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (!useBrowsingMode)
         {
-            currentMode = FlowMode.Overview;
+            SetFlowMode(FlowMode.Overview, "browsing_disabled");
             ClearModeSelection();
             ResetTwoHandManipulation();
             return;
@@ -992,7 +1111,7 @@ public class ObjectFlowManager : MonoBehaviour
             Debug.Log("[ObjectFlowManager] Pose tracking lost. Returning to Overview mode.");
         }
 
-        currentMode = FlowMode.Overview;
+        SetFlowMode(FlowMode.Overview, "pose_lost");
         ClearModeSelection();
         ResetTwoHandManipulation();
         wasWristTouching = false;
@@ -1000,9 +1119,11 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void EnterBrowseAfterPoseRestore()
     {
-        currentMode = FlowMode.Browsing;
+        SetFlowMode(FlowMode.Browsing, "pose_restored");
         selectedIndex = -1;
+        int previousCandidate = candidateIndex;
         candidateIndex = GetObjectIndexAtPosition();
+        LogCandidateChanged(previousCandidate, candidateIndex, "pose_restored");
         ResetTwoHandManipulation();
         wasWristTouching = IsScreenTouched();
         Debug.Log($"[ObjectFlowManager] Pose tracking restored. Switching to Browsing mode. navigation={navigationMode}, candidate=FlowCube_{candidateIndex + 1}");
@@ -1010,7 +1131,9 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void UpdateMoveNavigationState()
     {
+        int previousCandidate = candidateIndex;
         candidateIndex = GetObjectIndexAtPosition();
+        LogCandidateChanged(previousCandidate, candidateIndex, "move_position");
 
         bool wasTouchingBefore = wasWristTouching;
         bool isTouching = IsScreenTouched();
@@ -1020,8 +1143,9 @@ public class ObjectFlowManager : MonoBehaviour
         {
             if (Time.time >= touchConfirmationEndTime)
             {
-                currentMode = FlowMode.Detail;
+                SetFlowMode(FlowMode.Detail, "touch_confirmation_complete", GetArtifactLogDetails(selectedIndex));
                 detailEntryDepth = depth;
+                LogSelectionEvent("detail_entered", selectedIndex, "navigation=move");
                 Debug.Log($"[ObjectFlowManager] Detail mode entered for FlowCube_{selectedIndex + 1}.");
             }
 
@@ -1033,7 +1157,8 @@ public class ObjectFlowManager : MonoBehaviour
             if (touchStarted)
             {
                 Debug.Log($"[ObjectFlowManager] Returned to Browsing mode from Detail by touch. position={position:F3}, depth={depth:F3}");
-                currentMode = FlowMode.Browsing;
+                SetFlowMode(FlowMode.Browsing, "detail_touch_exit", $"navigation=move; {GetArtifactLogDetails(selectedIndex)}");
+                LogSelectionEvent("detail_exited", selectedIndex, "navigation=move; reason=touch");
                 selectedIndex = -1;
                 ResetTwoHandManipulation();
             }
@@ -1041,13 +1166,14 @@ public class ObjectFlowManager : MonoBehaviour
             return;
         }
 
-        currentMode = FlowMode.Browsing;
+        SetFlowMode(FlowMode.Browsing, "move_navigation_active");
         selectedIndex = -1;
 
         if (touchStarted)
         {
             selectedIndex = candidateIndex;
-            currentMode = FlowMode.TouchConfirmed;
+            LogSelectionEvent("selection_confirmed", selectedIndex, "navigation=move");
+            SetFlowMode(FlowMode.TouchConfirmed, "move_touch_confirmed", GetArtifactLogDetails(selectedIndex));
             touchConfirmationEndTime = Time.time + touchConfirmationDuration;
             ResetTwoHandManipulation();
             Debug.Log($"[ObjectFlowManager] Touch confirmed FlowCube_{selectedIndex + 1}. position={position:F3}, depth={depth:F3}");
@@ -1065,6 +1191,11 @@ public class ObjectFlowManager : MonoBehaviour
             Debug.Log(isTouching ? $"[ObjectFlowManager] Screen touch detected: {touchReason}" : "[ObjectFlowManager] Screen touch ended.");
         }
 
+        if (isTouching != wasTouchingBefore)
+        {
+            LogUserEvent(isTouching ? "touch_started" : "touch_ended", isTouching ? touchReason : "navigation=touch");
+        }
+
         wasWristTouching = isTouching;
         bool touchStarted = isTouching && !wasTouchingBefore;
 
@@ -1072,8 +1203,9 @@ public class ObjectFlowManager : MonoBehaviour
         {
             if (Time.time >= touchConfirmationEndTime)
             {
-                currentMode = FlowMode.Detail;
+                SetFlowMode(FlowMode.Detail, "touch_confirmation_complete", GetArtifactLogDetails(selectedIndex));
                 detailEntryDepth = depth;
+                LogSelectionEvent("detail_entered", selectedIndex, "navigation=touch");
                 Debug.Log($"[ObjectFlowManager] Detail mode entered for FlowCube_{selectedIndex + 1}.");
             }
 
@@ -1086,8 +1218,10 @@ public class ObjectFlowManager : MonoBehaviour
         switch (currentMode)
         {
             case FlowMode.Overview:
-                currentMode = FlowMode.Browsing;
+                SetFlowMode(FlowMode.Browsing, "touch_navigation_overview_touch", $"section={touchSection}; touchX={touchX:F3}");
+                int previousCandidate = candidateIndex;
                 candidateIndex = GetObjectIndexFromTouchX(touchX);
+                LogCandidateChanged(previousCandidate, candidateIndex, "touch_navigation_enter_browse", $"section={touchSection}; touchX={touchX:F3}");
                 selectedIndex = -1;
                 ResetTwoHandManipulation();
                 Debug.Log($"[ObjectFlowManager] Touch navigation entered Browsing mode. section={touchSection}, candidate=FlowCube_{candidateIndex + 1}, touchX={touchX:F3}");
@@ -1097,14 +1231,17 @@ public class ObjectFlowManager : MonoBehaviour
                 break;
             case FlowMode.Detail:
                 int returnCandidate = selectedIndex >= 0 ? selectedIndex : candidateIndex;
-                currentMode = FlowMode.Browsing;
+                SetFlowMode(FlowMode.Browsing, "touch_navigation_detail_exit", $"section={touchSection}; touchX={touchX:F3}; {GetArtifactLogDetails(selectedIndex)}");
+                LogSelectionEvent("detail_exited", selectedIndex, $"navigation=touch; section={touchSection}; touchX={touchX:F3}");
                 selectedIndex = -1;
+                int previousReturnCandidate = candidateIndex;
                 candidateIndex = Mathf.Clamp(returnCandidate, 0, ObjectCount - 1);
+                LogCandidateChanged(previousReturnCandidate, candidateIndex, "touch_navigation_detail_exit");
                 ResetTwoHandManipulation();
                 Debug.Log($"[ObjectFlowManager] Touch navigation returned to Browsing mode from Detail. candidate=FlowCube_{candidateIndex + 1}, section={touchSection}, touchX={touchX:F3}");
                 break;
             default:
-                currentMode = FlowMode.Overview;
+                SetFlowMode(FlowMode.Overview, "touch_navigation_unexpected_state");
                 ClearModeSelection();
                 ResetTwoHandManipulation();
                 break;
@@ -1121,10 +1258,14 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (candidateIndex < 0)
         {
+            int previousCandidate = candidateIndex;
             candidateIndex = GetObjectIndexAtPosition();
+            LogCandidateChanged(previousCandidate, candidateIndex, "touch_navigation_candidate_init");
         }
 
+        int unclampedCandidate = candidateIndex;
         candidateIndex = Mathf.Clamp(candidateIndex, 0, ObjectCount - 1);
+        LogCandidateChanged(unclampedCandidate, candidateIndex, "touch_navigation_candidate_clamp");
     }
 
     private void HandleTouchNavigationBrowseTouch(TouchSection touchSection, float touchX)
@@ -1132,18 +1273,24 @@ public class ObjectFlowManager : MonoBehaviour
         switch (touchSection)
         {
             case TouchSection.Left:
+                int previousLeftCandidate = candidateIndex;
                 candidateIndex = Mathf.Max(0, candidateIndex - 1);
+                LogCandidateChanged(previousLeftCandidate, candidateIndex, "touch_left", $"touchX={touchX:F3}");
                 Debug.Log($"[ObjectFlowManager] Touch navigation moved selection left to FlowCube_{candidateIndex + 1}. touchX={touchX:F3}");
                 break;
             case TouchSection.Right:
+                int previousRightCandidate = candidateIndex;
                 candidateIndex = Mathf.Min(ObjectCount - 1, candidateIndex + 1);
+                LogCandidateChanged(previousRightCandidate, candidateIndex, "touch_right", $"touchX={touchX:F3}");
                 Debug.Log($"[ObjectFlowManager] Touch navigation moved selection right to FlowCube_{candidateIndex + 1}. touchX={touchX:F3}");
                 break;
             default:
                 selectedIndex = candidateIndex;
-                currentMode = FlowMode.Detail;
+                LogSelectionEvent("selection_confirmed", selectedIndex, $"navigation=touch; section={touchSection}; touchX={touchX:F3}");
+                SetFlowMode(FlowMode.Detail, "touch_center_detail", $"touchX={touchX:F3}; {GetArtifactLogDetails(selectedIndex)}");
                 detailEntryDepth = depth;
                 ResetTwoHandManipulation();
+                LogSelectionEvent("detail_entered", selectedIndex, $"navigation=touch; section={touchSection}; touchX={touchX:F3}");
                 Debug.Log($"[ObjectFlowManager] Touch navigation entered Detail mode for FlowCube_{selectedIndex + 1}. touchX={touchX:F3}");
                 break;
         }
@@ -1178,6 +1325,11 @@ public class ObjectFlowManager : MonoBehaviour
         if (logWristTouchDebug && isTouching != wasWristTouching)
         {
             Debug.Log(isTouching ? $"[ObjectFlowManager] Wrist touch detected: {reason}" : "[ObjectFlowManager] Wrist touch ended.");
+        }
+
+        if (isTouching != wasWristTouching)
+        {
+            LogUserEvent(isTouching ? "touch_started" : "touch_ended", isTouching ? reason : "navigation=move");
         }
 
         wasWristTouching = isTouching;
@@ -1292,6 +1444,11 @@ public class ObjectFlowManager : MonoBehaviour
 
         if (!TryGetBothWristControls(out Vector2 leftWrist, out Vector2 rightWrist))
         {
+            if (hasTwoHandBaseline)
+            {
+                LogUserEvent("two_hand_manipulation_lost", GetArtifactLogDetails(twoHandManipulationIndex));
+            }
+
             hasTwoHandBaseline = false;
             return;
         }
@@ -1323,6 +1480,8 @@ public class ObjectFlowManager : MonoBehaviour
             baselineSelectedYawOffset = selectedYawOffset;
             baselineSelectedPitchOffset = selectedPitchOffset;
             baselineSelectedRollOffset = selectedRollOffset;
+            nextManipulationUserEventLogTime = Time.unscaledTime + Mathf.Max(0.05f, userEventManipulationLogInterval);
+            LogUserEvent("two_hand_manipulation_started", $"{GetArtifactLogDetails(selectedIndex)}; wristDistance={wristDistance:F4}; wristMidpoint={wristMidpoint}");
 
             if (logTwoHandManipulationDebug)
             {
@@ -1343,6 +1502,14 @@ public class ObjectFlowManager : MonoBehaviour
         selectedYawOffset = Mathf.Lerp(selectedYawOffset, targetYaw, follow);
         selectedPitchOffset = Mathf.Lerp(selectedPitchOffset, targetPitch, follow);
         selectedRollOffset = Mathf.LerpAngle(selectedRollOffset, targetRoll, follow);
+
+        if (Time.unscaledTime >= nextManipulationUserEventLogTime)
+        {
+            LogUserEvent(
+                "two_hand_manipulation_updated",
+                $"{GetArtifactLogDetails(selectedIndex)}; scale={selectedScaleMultiplier:F4}; yaw={selectedYawOffset:F2}; pitch={selectedPitchOffset:F2}; roll={selectedRollOffset:F2}; wristDistance={wristDistance:F4}");
+            nextManipulationUserEventLogTime = Time.unscaledTime + Mathf.Max(0.05f, userEventManipulationLogInterval);
+        }
     }
 
     private bool TryGetBothWristControls(out Vector2 leftWristControl, out Vector2 rightWristControl)
@@ -1374,6 +1541,11 @@ public class ObjectFlowManager : MonoBehaviour
 
     private void ResetTwoHandManipulation()
     {
+        if (hasTwoHandBaseline)
+        {
+            LogUserEvent("two_hand_manipulation_ended", GetArtifactLogDetails(twoHandManipulationIndex));
+        }
+
         hasTwoHandBaseline = false;
         twoHandManipulationIndex = -1;
         baselineSelectedScaleMultiplier = 1f;

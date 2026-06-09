@@ -1046,6 +1046,10 @@ MonoBehaviour:
   detailModalPaddingRatio: 0.11
   detailModalMaxDescriptionCharacters: 220
   detailModalMinimalMuseumLayout: 1
+  logUserEventsToFile: 1
+  userEventLogDirectoryName: UserEventLogs
+  userEventLogFileName: user_events.tsv
+  userEventManipulationLogInterval: 0.25
 --- !u!1 &2132842236
 GameObject:
   m_ObjectHideFlags: 0
